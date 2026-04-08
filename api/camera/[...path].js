@@ -27,6 +27,11 @@ function sanitizeRequestHeaders(headers) {
     delete nextHeaders['x-forwarded-host']
     delete nextHeaders['x-forwarded-port']
     delete nextHeaders['x-forwarded-proto']
+    delete nextHeaders['if-none-match']
+    delete nextHeaders['if-modified-since']
+    delete nextHeaders.etag
+    delete nextHeaders['cache-control']
+    delete nextHeaders.pragma
     return nextHeaders
 }
 
@@ -35,6 +40,10 @@ function applyCorsHeaders(res) {
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, WWW-Authenticate, X-WWW-Authenticate')
     res.setHeader('Access-Control-Expose-Headers', 'Authorization, X-WWW-Authenticate')
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Expires', '0')
+    res.setHeader('Surrogate-Control', 'no-store')
 }
 
 function getRequestBody(req) {
@@ -74,6 +83,9 @@ export default async function handler(req, res) {
 
         upstream.headers.forEach((value, key) => {
             if (key.toLowerCase() === 'content-encoding') {
+                return
+            }
+            if (['cache-control', 'etag', 'last-modified', 'expires', 'pragma'].includes(key.toLowerCase())) {
                 return
             }
             if (key.toLowerCase() === 'www-authenticate') {

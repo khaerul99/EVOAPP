@@ -34,6 +34,11 @@ function toFriendlyError(status) {
     return `Autentikasi gagal (HTTP ${status}).`
 }
 
+function withCacheBust(endpointPath) {
+    const separator = endpointPath.includes('?') ? '&' : '?'
+    return `${endpointPath}${separator}_cb=${Date.now()}${Math.floor(Math.random() * 10000)}`
+}
+
 async function sendDigestRequest({
     endpointPath,
     method,
@@ -62,6 +67,8 @@ async function sendDigestRequest({
         headers: {
             'Content-Type': 'application/json',
             Authorization: authorization,
+            'Cache-Control': 'no-cache, no-store',
+            Pragma: 'no-cache',
         },
         validateStatus: () => true,
     })
@@ -80,6 +87,8 @@ async function sendPlainRequest({
         signal,
         headers: {
             'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache, no-store',
+            Pragma: 'no-cache',
         },
         validateStatus: () => true,
     })
@@ -190,8 +199,9 @@ export async function loginWithDigest(username, password) {
     const { signal } = activeLoginController
 
     try {
+        const endpointPath = withCacheBust(AUTH_PROBE_PATH)
         const result = await executeDigestAttempt({
-            endpointPath: AUTH_PROBE_PATH,
+            endpointPath,
             method: AUTH_METHOD,
             payload: {},
             username,
