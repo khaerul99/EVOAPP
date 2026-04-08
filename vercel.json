@@ -1,6 +1,8 @@
 {
+  "version": 2,
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+    { "src": "^/api/camera/(.*)$", "dest": "/api/camera/[...path].js" },
+    { "handle": "filesystem" },
+    { "resource": "/(.*)", "dest": "/index.html" }
+ ]
 }
