@@ -12,6 +12,7 @@ const authHttp = axios.create({
     timeout: ApiClient.defaults.timeout || 10000,
 })
 let activeLoginController = null
+const STRICT_DIGEST = (import.meta.env.VITE_AUTH_STRICT_DIGEST || 'true').toLowerCase() !== 'false'
 
 function getHeaderCaseInsensitive(headers, key) {
     if (!headers) {
@@ -98,6 +99,14 @@ async function executeDigestAttempt({
     let challenge = parseDigestChallenge(getHeaderCaseInsensitive(firstResponse.headers, 'www-authenticate') || '')
 
     if (!challenge && firstResponse.status >= 200 && firstResponse.status < 300) {
+        if (STRICT_DIGEST) {
+            return {
+                ok: false,
+                status: firstResponse.status,
+                error: 'Endpoint tidak mengembalikan challenge Digest. Login dibatalkan demi keamanan.',
+            }
+        }
+
         return {
             ok: true,
             username,
