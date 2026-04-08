@@ -1,0 +1,13 @@
+{
+  "rewrites": [
+    {
+      "source": "/cgi-bin/(.*)",
+      "destination": "http://103.194.172.70:8080/cgi-bin/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+   
+  ]
+}
