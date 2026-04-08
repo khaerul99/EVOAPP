@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { useClickOutside } from "../../hooks/useClickOutside";
+import { clearSession, getSession } from "../../lib/session-helper";
 
 const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
   const [currentTime, setCurrentTime] = useState(
@@ -23,17 +24,18 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
   const [scrolled, setScrolled] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const location = useLocation();
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    localStorage.removeItem("evosecure_session");
-    localStorage.removeItem("evosecure_auth_state");
-    localStorage.removeItem("dahua-auth");
+    clearSession();
     navigate("/login", { replace: true });
   };
 
   useEffect(() => {
+    setCurrentUser(getSession());
+
     const timer = setInterval(() => {
       setCurrentTime(new Date().toLocaleTimeString("id-ID"));
     }, 1000);
@@ -46,6 +48,18 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
       window.removeEventListener("scroll", handleScroll);
     };
   }, []);
+
+  const displayUsername = (currentUser?.username || "User").toUpperCase();
+  const displayProfileName = currentUser?.username || "User";
+  let displayProfileMeta = "SERVER";
+  try {
+    const cameraUrl = import.meta.env.VITE_CAMERA_URL || "";
+    displayProfileMeta = cameraUrl
+      ? new URL(cameraUrl).host.toUpperCase()
+      : "SERVER";
+  } catch {
+    displayProfileMeta = "SERVER";
+  }
 
   const notifRef = useRef();
 
@@ -177,7 +191,7 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
                 Role: Admin
               </span>
               <span className="text-xs font-black tracking-tight uppercase">
-                System Root
+                {displayUsername}
               </span>
             </div>
           </motion.button>
@@ -207,10 +221,10 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
                       </div>
                       <div>
                         <p className="text-sm font-black leading-none text-navy">
-                          Admin Utama
+                          {displayProfileName}
                         </p>
                         <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-tighter">
-                          192.168.1.108
+                          {displayProfileMeta}
                         </p>
                       </div>
                     </div>

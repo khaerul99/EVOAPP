@@ -1,11 +1,10 @@
 import React from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
-
-const SESSION_KEY = 'evosecure_session'
+import { hasSession } from '../../lib/session-helper'
 
 const ProtectedRoute = () => {
     const location = useLocation()
-    const isAuthenticated = Boolean(localStorage.getItem(SESSION_KEY))
+    const isAuthenticated = hasSession()
 
     if (!isAuthenticated) {
         return <Navigate to="/login" replace state={{ from: location }} />

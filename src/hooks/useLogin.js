@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cancelLoginRequest, loginWithDigest } from '../services/auth.service'
-
-const SESSION_KEY = 'evosecure_session'
-const REMEMBER_KEY = 'evosecure_remember_username'
+import { authStore } from '../stores/authSlice'
+import { REMEMBER_KEY, getSession, saveSession } from '../lib/session-helper'
 
 export function useLogin() {
     const navigate = useNavigate()
@@ -16,8 +15,8 @@ export function useLogin() {
     const [error, setError] = useState('')
 
     useEffect(() => {
-        const session = localStorage.getItem(SESSION_KEY)
-        if (session) {
+        const session = getSession()
+        if (session?.username) {
             navigate('/dashboard', { replace: true })
             return
         }
@@ -46,9 +45,12 @@ export function useLogin() {
                 loginAt: Date.now(),
             }
 
-            localStorage.setItem(SESSION_KEY, JSON.stringify(sessionPayload))
-            localStorage.removeItem('evosecure_auth_state')
-            localStorage.removeItem('dahua-auth')
+            saveSession(sessionPayload)
+            authStore.actions.setSession({
+                username: sessionPayload.username,
+                digestSecret: loginResult?.digestSecret || null,
+                challenge: loginResult?.challenge || null,
+            })
 
             if (rememberMe) {
                 localStorage.setItem(REMEMBER_KEY, username)
@@ -56,6 +58,7 @@ export function useLogin() {
                 localStorage.removeItem(REMEMBER_KEY)
             }
 
+            setPassword('')
             navigate('/dashboard', { replace: true })
         } catch (requestError) {
             setError(requestError?.message || 'Username atau password salah.')

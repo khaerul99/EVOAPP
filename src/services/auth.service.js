@@ -1,16 +1,19 @@
 import axios from 'axios'
 import ApiClient from '../lib/api'
+import { AUTH_METHOD, AUTH_PROBE_PATH, getRequestUri } from '../lib/api-config'
 import {
-    AUTH_METHOD,
-    AUTH_PROBE_PATH,
-    getRequestUri,
-} from '../lib/api-config'
-import { buildDigestAuthorizationHeader, createCnonce, formatNc, parseDigestChallenge } from '../lib/auth-helper'
+    buildDigestAuthorizationHeader,
+    computeDigestSecret,
+    createCnonce,
+    formatNc,
+    parseDigestChallenge,
+} from '../lib/auth-helper'
 
 const authHttp = axios.create({
     baseURL: ApiClient.defaults.baseURL,
     timeout: ApiClient.defaults.timeout || 10000,
 })
+
 let activeLoginController = null
 
 function getHeaderCaseInsensitive(headers, key) {
@@ -18,17 +21,23 @@ function getHeaderCaseInsensitive(headers, key) {
         return null
     }
     if (key.toLowerCase() === 'www-authenticate') {
-        return headers['x-www-authenticate'] || headers['X-WWW-Authenticate'] || headers[key] || headers[key.toLowerCase()] || headers[key.toUpperCase()]
+        return (
+            headers['x-www-authenticate']
+            || headers['X-WWW-Authenticate']
+            || headers[key]
+            || headers[key.toLowerCase()]
+            || headers[key.toUpperCase()]
+        )
     }
     return headers[key] || headers[key.toLowerCase()] || headers[key.toUpperCase()]
 }
 
 function toFriendlyError(status) {
     if (status === 401 || status === 403) {
-        return 'Autentikasi ditolak (401/403). Cek username/password atau endpoint login device.'
+        return 'Username atau password salah.'
     }
     if (status >= 500) {
-        return 'Server device merespons error 5xx. Endpoint login kemungkinan tidak sesuai format.'
+        return 'Server sedang bermasalah. Coba beberapa saat lagi.'
     }
     return `Autentikasi gagal (HTTP ${status}).`
 }
@@ -38,6 +47,7 @@ function isHtmlPayload(response) {
     if (!contentType.includes('text/html')) {
         return false
     }
+
     const bodyText = String(response?.data || '').toLowerCase()
     return bodyText.includes('<!doctype html') || bodyText.includes('<html')
 }
@@ -47,15 +57,22 @@ function withCacheBust(endpointPath) {
     return `${endpointPath}${separator}_cb=${Date.now()}${Math.floor(Math.random() * 10000)}`
 }
 
-async function sendDigestRequest({
-    endpointPath,
-    method,
-    bodyData,
-    username,
-    password,
-    challenge,
-    signal,
-}) {
+async function sendPlainRequest({ endpointPath, method, bodyData, signal }) {
+    return authHttp.request({
+        url: endpointPath,
+        method,
+        data: bodyData,
+        signal,
+        headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache, no-store',
+            Pragma: 'no-cache',
+        },
+        validateStatus: () => true,
+    })
+}
+
+async function sendDigestRequest({ endpointPath, method, bodyData, username, password, challenge, signal }) {
     const authorization = buildDigestAuthorizationHeader({
         method,
         uri: getRequestUri(endpointPath),
@@ -82,43 +99,12 @@ async function sendDigestRequest({
     })
 }
 
-async function sendPlainRequest({
-    endpointPath,
-    method,
-    bodyData,
-    signal,
-}) {
-    return authHttp.request({
-        url: endpointPath,
-        method,
-        data: bodyData,
-        signal,
-        headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-cache, no-store',
-            Pragma: 'no-cache',
-        },
-        validateStatus: () => true,
-    })
-}
-
-async function executeDigestAttempt({
-    endpointPath,
-    method,
-    username,
-    password,
-    payload,
-    signal,
-}) {
+async function executeDigestAttempt({ endpointPath, method, username, password, payload, signal }) {
     const bodyData = method === 'POST'
-        ? (payload || {
-            username,
-            userName: username,
-            password,
-        })
+        ? (payload || { username, userName: username, password })
         : undefined
-    const firstResponse = await sendPlainRequest({ endpointPath, method, bodyData, signal })
 
+    const firstResponse = await sendPlainRequest({ endpointPath, method, bodyData, signal })
     let challenge = parseDigestChallenge(getHeaderCaseInsensitive(firstResponse.headers, 'www-authenticate') || '')
 
     if (!challenge && firstResponse.status >= 200 && firstResponse.status < 300) {
@@ -134,6 +120,7 @@ async function executeDigestAttempt({
             ok: true,
             username,
             challenge: null,
+            digestSecret: null,
             endpoint: endpointPath,
             requiresDigest: false,
         }
@@ -160,14 +147,20 @@ async function executeDigestAttempt({
             challenge,
             signal,
         })
+
         lastStatus = digestResponse.status
 
         if (digestResponse.status >= 200 && digestResponse.status < 300) {
-            const nextChallenge = parseDigestChallenge(getHeaderCaseInsensitive(digestResponse.headers, 'www-authenticate') || '')
+            const nextChallenge = parseDigestChallenge(
+                getHeaderCaseInsensitive(digestResponse.headers, 'www-authenticate') || '',
+            )
+            const effectiveChallenge = nextChallenge || challenge
+
             return {
                 ok: true,
                 username,
-                challenge: nextChallenge || challenge,
+                challenge: effectiveChallenge,
+                digestSecret: computeDigestSecret(username, effectiveChallenge.realm, password),
                 endpoint: endpointPath,
                 requiresDigest: true,
             }
@@ -217,11 +210,7 @@ export async function loginWithDigest(username, password) {
         const result = await executeDigestAttempt({
             endpointPath,
             method: AUTH_METHOD,
-            payload: {
-                username,
-                userName: username,
-                password,
-            },
+            payload: { username, userName: username, password },
             username,
             password,
             signal,
@@ -235,6 +224,12 @@ export async function loginWithDigest(username, password) {
     } catch (error) {
         if (error?.code === 'ERR_CANCELED') {
             throw new Error('Permintaan login dibatalkan.')
+        }
+        if (error?.code === 'ECONNABORTED') {
+            throw new Error('Koneksi timeout. Cek jaringan lalu coba lagi.')
+        }
+        if (error?.message === 'Network Error') {
+            throw new Error('Tidak bisa terhubung ke server. Cek koneksi jaringan.')
         }
         throw error
     } finally {

@@ -13,7 +13,7 @@ function getHeaderCaseInsensitive(headers = {}, key) {
 }
 
 function canUseDigest(state) {
-    return Boolean(state?.isAuthenticated && state?.credentials?.username && state?.credentials?.password && state?.challenge?.nonce)
+    return Boolean(state?.isAuthenticated && state?.auth?.username && state?.auth?.digestSecret && state?.challenge?.nonce)
 }
 
 function getBodyString(data) {
@@ -45,8 +45,8 @@ function appendDigestHeader(config, authState) {
     const authorization = buildDigestAuthorizationHeader({
         method,
         uri,
-        username: authState.credentials.username,
-        password: authState.credentials.password,
+        username: authState.auth.username,
+        digestSecret: authState.auth.digestSecret,
         body,
         challenge: authState.challenge,
         nc,
@@ -88,7 +88,7 @@ export function setupInterceptors(ApiClient) {
             }
 
             const authState = authStore.getState()
-            if (!authState?.credentials?.username || !authState?.credentials?.password) {
+            if (!authState?.auth?.username || !authState?.auth?.digestSecret) {
                 authStore.actions.clearSession()
                 throw error
             }

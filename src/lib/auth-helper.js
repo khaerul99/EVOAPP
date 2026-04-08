@@ -4,6 +4,10 @@ export function md5(inputText) {
     return CryptoJS.MD5(String(inputText)).toString(CryptoJS.enc.Hex)
 }
 
+export function computeDigestSecret(username, realm, password) {
+    return md5(`${username}:${realm}:${password}`)
+}
+
 export function parseDigestChallenge(headerValue = '') {
     const raw = String(headerValue || '').trim()
     if (!raw.toLowerCase().startsWith('digest ')) {
@@ -66,6 +70,7 @@ export function buildDigestAuthorizationHeader({
     uri,
     username,
     password,
+    digestSecret,
     body = '',
     challenge,
     nc = '00000001',
@@ -75,7 +80,7 @@ export function buildDigestAuthorizationHeader({
     const selectedQop = normalizeQop(challenge.qop)
     const algorithm = (challenge.algorithm || 'MD5').toUpperCase()
 
-    let ha1 = md5(`${username}:${challenge.realm}:${password}`)
+    let ha1 = digestSecret || computeDigestSecret(username, challenge.realm, password)
     if (algorithm === 'MD5-SESS') {
         ha1 = md5(`${ha1}:${challenge.nonce}:${cnonce}`)
     }

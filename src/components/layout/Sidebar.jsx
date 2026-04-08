@@ -5,6 +5,7 @@ import {
     LayoutDashboard, Video, FileBarChart, ScanFace, PlayCircle,
     LogOut, Shield, ChevronLeft, X
 } from 'lucide-react';
+import { clearSession } from '../../lib/session-helper';
 
 
 const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
@@ -21,9 +22,7 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
     ];
 
     const handleLogout = () => {
-        localStorage.removeItem('evosecure_session');
-        localStorage.removeItem('evosecure_auth_state');
-        localStorage.removeItem('dahua-auth');
+        clearSession();
         navigate('/login', { replace: true });
     }
 
