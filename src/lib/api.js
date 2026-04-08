@@ -1,9 +1,11 @@
 import axios from 'axios'
 import { setupInterceptors } from './api-interceptor'
 
+const URL = import.meta.env.VITE_CAMERA_URL || '/api/camera'
+
 const CAMERA_URL = import.meta.env.DEV
     ? '/'
-    : import.meta.env.VITE_CAMERA_URL || '/'
+    : URL
 
 const ApiClient = axios.create({
     baseURL: CAMERA_URL,

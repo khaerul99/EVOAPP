@@ -1,5 +1,5 @@
 import React from 'react'
-import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/auth/Login'
 import DashboardLayout from './pages/DashboardLayout'
 import DashboardHome from './pages/DashboardHome'
@@ -28,8 +28,7 @@ function App() {
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Routes>
         </Router>
-
-)
+    )
 }
 
 export default App
