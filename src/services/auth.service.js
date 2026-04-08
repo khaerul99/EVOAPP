@@ -1,16 +1,24 @@
+import axios from 'axios'
 import ApiClient from '../lib/api'
 import {
-    AUTH_FALLBACK_METHOD,
-    AUTH_FALLBACK_PATH,
     AUTH_METHOD,
     AUTH_PROBE_PATH,
     getRequestUri,
 } from '../lib/api-config'
 import { buildDigestAuthorizationHeader, createCnonce, formatNc, parseDigestChallenge } from '../lib/auth-helper'
 
+const authHttp = axios.create({
+    baseURL: ApiClient.defaults.baseURL,
+    timeout: ApiClient.defaults.timeout || 10000,
+})
+let activeLoginController = null
+
 function getHeaderCaseInsensitive(headers, key) {
     if (!headers) {
         return null
+    }
+    if (key.toLowerCase() === 'www-authenticate') {
+        return headers['x-www-authenticate'] || headers['X-WWW-Authenticate'] || headers[key] || headers[key.toLowerCase()] || headers[key.toUpperCase()]
     }
     return headers[key] || headers[key.toLowerCase()] || headers[key.toUpperCase()]
 }
@@ -25,33 +33,69 @@ function toFriendlyError(status) {
     return `Autentikasi gagal (HTTP ${status}).`
 }
 
+async function sendDigestRequest({
+    endpointPath,
+    method,
+    bodyData,
+    username,
+    password,
+    challenge,
+    signal,
+}) {
+    const authorization = buildDigestAuthorizationHeader({
+        method,
+        uri: getRequestUri(endpointPath),
+        username,
+        password,
+        body: bodyData ? JSON.stringify(bodyData) : '',
+        challenge,
+        nc: formatNc(1),
+        cnonce: createCnonce(),
+    })
+
+    return authHttp.request({
+        url: endpointPath,
+        method,
+        data: bodyData,
+        signal,
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: authorization,
+        },
+        validateStatus: () => true,
+    })
+}
+
+async function sendPlainRequest({
+    endpointPath,
+    method,
+    bodyData,
+    signal,
+}) {
+    return authHttp.request({
+        url: endpointPath,
+        method,
+        data: bodyData,
+        signal,
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        validateStatus: () => true,
+    })
+}
+
 async function executeDigestAttempt({
     endpointPath,
     method,
     username,
     password,
     payload,
+    signal,
 }) {
     const bodyData = method === 'POST' ? (payload || {}) : undefined
-
-    const firstResponse = await ApiClient.request({
-        url: endpointPath,
-        method,
-        data: bodyData,
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        validateStatus: () => true,
-    })
+    const firstResponse = await sendPlainRequest({ endpointPath, method, bodyData, signal })
 
     let challenge = parseDigestChallenge(getHeaderCaseInsensitive(firstResponse.headers, 'www-authenticate') || '')
-    if (!challenge && firstResponse.status === 401) {
-        return {
-            ok: false,
-            status: firstResponse.status,
-            error: 'Server mengembalikan 401 tetapi header digest tidak ditemukan.',
-        }
-    }
 
     if (!challenge && firstResponse.status >= 200 && firstResponse.status < 300) {
         return {
@@ -67,48 +111,61 @@ async function executeDigestAttempt({
         return {
             ok: false,
             status: firstResponse.status,
-            error: toFriendlyError(firstResponse.status),
+            error: firstResponse.status === 401
+                ? 'Server mengembalikan 401 tetapi header digest tidak ditemukan.'
+                : toFriendlyError(firstResponse.status),
         }
     }
 
-    const authorization = buildDigestAuthorizationHeader({
-        method,
-        uri: getRequestUri(endpointPath),
-        username,
-        password,
-        body: bodyData ? JSON.stringify(bodyData) : '',
-        challenge,
-        nc: formatNc(1),
-        cnonce: createCnonce(),
-    })
+    let lastStatus = firstResponse.status
+    for (let round = 0; round < 4; round += 1) {
+        const digestResponse = await sendDigestRequest({
+            endpointPath,
+            method,
+            bodyData,
+            username,
+            password,
+            challenge,
+            signal,
+        })
+        lastStatus = digestResponse.status
 
-    const secondResponse = await ApiClient.request({
-        url: endpointPath,
-        method,
-        data: bodyData,
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: authorization,
-        },
-        validateStatus: () => true,
-    })
-
-    if (secondResponse.status < 200 || secondResponse.status >= 300) {
-        return {
-            ok: false,
-            status: secondResponse.status,
-            error: toFriendlyError(secondResponse.status),
+        if (digestResponse.status >= 200 && digestResponse.status < 300) {
+            const nextChallenge = parseDigestChallenge(getHeaderCaseInsensitive(digestResponse.headers, 'www-authenticate') || '')
+            return {
+                ok: true,
+                username,
+                challenge: nextChallenge || challenge,
+                endpoint: endpointPath,
+                requiresDigest: true,
+            }
         }
-    }
 
-    const nextChallenge = parseDigestChallenge(getHeaderCaseInsensitive(secondResponse.headers, 'www-authenticate') || '')
+        if (digestResponse.status !== 401) {
+            return {
+                ok: false,
+                status: digestResponse.status,
+                error: toFriendlyError(digestResponse.status),
+            }
+        }
+
+        const refreshedChallenge = parseDigestChallenge(
+            getHeaderCaseInsensitive(digestResponse.headers, 'www-authenticate') || '',
+        )
+        if (!refreshedChallenge) {
+            return {
+                ok: false,
+                status: digestResponse.status,
+                error: 'Server mengembalikan 401 tetapi header digest tidak ditemukan.',
+            }
+        }
+        challenge = refreshedChallenge
+    }
 
     return {
-        ok: true,
-        username,
-        challenge: nextChallenge || challenge,
-        endpoint: endpointPath,
-        requiresDigest: true,
+        ok: false,
+        status: lastStatus,
+        error: toFriendlyError(lastStatus),
     }
 }
 
@@ -117,39 +174,46 @@ export async function loginWithDigest(username, password) {
         throw new Error('Username dan password wajib diisi.')
     }
 
-    const attempts = [
-        {
+    if (activeLoginController) {
+        activeLoginController.abort()
+    }
+    activeLoginController = new AbortController()
+    const { signal } = activeLoginController
+
+    try {
+        const result = await executeDigestAttempt({
             endpointPath: AUTH_PROBE_PATH,
             method: AUTH_METHOD,
             payload: {},
-        },
-    ]
-
-    if (AUTH_FALLBACK_PATH !== AUTH_PROBE_PATH) {
-        attempts.push({
-            endpointPath: AUTH_FALLBACK_PATH,
-            method: AUTH_FALLBACK_METHOD,
-            payload: {},
-        })
-    }
-
-    let lastError = 'Autentikasi gagal.'
-    for (const attempt of attempts) {
-        const result = await executeDigestAttempt({
-            ...attempt,
             username,
             password,
+            signal,
         })
 
         if (result.ok) {
             return result
         }
-        lastError = result.error || lastError
-    }
 
-    throw new Error(lastError)
+        throw new Error(result.error || 'Autentikasi gagal.')
+    } catch (error) {
+        if (error?.code === 'ERR_CANCELED') {
+            throw new Error('Permintaan login dibatalkan.')
+        }
+        throw error
+    } finally {
+        if (activeLoginController?.signal === signal) {
+            activeLoginController = null
+        }
+    }
 }
 
 export async function logout() {
     return Promise.resolve()
+}
+
+export function cancelLoginRequest() {
+    if (activeLoginController) {
+        activeLoginController.abort()
+        activeLoginController = null
+    }
 }

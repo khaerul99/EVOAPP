@@ -33,8 +33,8 @@ function sanitizeRequestHeaders(headers) {
 function applyCorsHeaders(res) {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, WWW-Authenticate')
-    res.setHeader('Access-Control-Expose-Headers', 'WWW-Authenticate, Authorization')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, WWW-Authenticate, X-WWW-Authenticate')
+    res.setHeader('Access-Control-Expose-Headers', 'Authorization, X-WWW-Authenticate')
 }
 
 function getRequestBody(req) {
@@ -74,6 +74,10 @@ export default async function handler(req, res) {
 
         upstream.headers.forEach((value, key) => {
             if (key.toLowerCase() === 'content-encoding') {
+                return
+            }
+            if (key.toLowerCase() === 'www-authenticate') {
+                res.setHeader('x-www-authenticate', value)
                 return
             }
             res.setHeader(key, value)

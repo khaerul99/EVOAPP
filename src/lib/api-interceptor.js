@@ -6,6 +6,9 @@ function getHeaderCaseInsensitive(headers = {}, key) {
     if (!headers) {
         return null
     }
+    if (key.toLowerCase() === 'www-authenticate') {
+        return headers['x-www-authenticate'] || headers['X-WWW-Authenticate'] || headers[key] || headers[key.toLowerCase()] || headers[key.toUpperCase()]
+    }
     return headers[key] || headers[key.toLowerCase()] || headers[key.toUpperCase()]
 }
 

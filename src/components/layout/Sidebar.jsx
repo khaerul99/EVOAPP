@@ -1,61 +1,116 @@
-import React from 'react'
-import { FileBarChart, LayoutDashboard, LogOut, PlayCircle, ScanFace, Shield, Video } from 'lucide-react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import React from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+    LayoutDashboard, Video, FileBarChart, ScanFace, PlayCircle,
+    LogOut, Shield, ChevronLeft, X
+} from 'lucide-react';
+import { useAuthActions } from '../../stores/useStore';
 
-const Sidebar = ({ isSidebarOpen, onCloseMobile, onLogout }) => {
-    const navigate = useNavigate()
-    const location = useLocation()
 
-    const items = [
-        { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
-        { icon: Video, label: 'Camera Management', path: '/dashboard/camera' },
-        { icon: FileBarChart, label: 'Reports', path: '/dashboard/reports' },
-        { icon: ScanFace, label: 'Face Management', path: '/dashboard/face' },
-        { icon: PlayCircle, label: 'Playback', path: '/dashboard/playback' },
-    ]
+const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
+    const navigate = useNavigate();
+    const location = useLocation();
+    const { clearSession } = useAuthActions();
+    
+
+    const menuItems = [
+        { icon: LayoutDashboard, label: "Intelligence", path: "/dashboard" },
+        { icon: Video, label: "Camera Management", path: "/dashboard/camera" },
+        { icon: PlayCircle, label: "Playback", path: "/dashboard/playback" },
+        { icon: ScanFace, label: "Face Recognition", path: "/dashboard/face" },
+        { icon: FileBarChart, label: "Analytics", path: "/dashboard/reports" },
+    ];
+
+    const handleLogout = () => {
+        clearSession();
+        navigate('/login');
+    }
 
     return (
-        <>
-            {isSidebarOpen && (
-                <div className="fixed inset-0 bg-navy/50 backdrop-blur-sm z-40 md:hidden" onClick={onCloseMobile} />
-            )}
-            <aside className={`bg-navy flex flex-col shrink-0 transition-all duration-500 ease-in-out z-50 fixed md:relative h-full ${isSidebarOpen ? 'w-72 translate-x-0' : '-translate-x-full w-72 md:w-20 md:translate-x-0'}`}>
-                <div className="p-6 md:p-10 flex items-center justify-between">
-                    {isSidebarOpen && <h1 className="text-2xl font-black text-white tracking-tighter animate-in fade-in duration-700">EVOSECURE</h1>}
-                    {!isSidebarOpen && <Shield className="text-white animate-in zoom-in" size={24} />}
-                </div>
-
-                <nav className="flex-1 px-4 space-y-2 overflow-hidden">
-                    {items.map((item) => {
-                        const isActive = location.pathname === item.path || (item.path === '/dashboard' && location.pathname === '/dashboard/')
-                        const Icon = item.icon
-                        return (
-                            <button
-                                key={item.path}
-                                onClick={() => navigate(item.path)}
-                                className={`w-full flex items-center ${isSidebarOpen ? 'space-x-3 px-6' : 'justify-center px-0'} py-4 transition-all duration-300 ${isActive ? 'bg-accent text-navy shadow-inner' : 'text-white/60 hover:text-white hover:bg-white/5'} rounded-xl`}
+        <aside className={`
+            fixed inset-y-0 left-0 z-50 bg-[#0A0D14] flex flex-col shadow-2xl transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
+            
+            /* MOBILE: Sembunyi total ke kiri (-translate) jika false */
+            ${isSidebarOpen ? 'translate-x-0 w-72' : '-translate-x-full lg:translate-x-0 w-72 lg:w-24'}
+        `}>
+            
+            {/* Logo Section */}
+            <div className="relative flex items-center h-24 px-8 shrink-0">
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-center w-10 h-10 bg-accent rounded-2xl">
+                        <Shield className="text-navy" size={22} />
+                    </div>
+                    <AnimatePresence>
+                        {isSidebarOpen && (
+                            <motion.h1 
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -10 }}
+                                className="text-xl font-black tracking-tighter text-white whitespace-nowrap"
                             >
-                                <Icon size={20} className={`${isActive ? 'animate-pulse' : ''} shrink-0`} />
-                                {isSidebarOpen && <span className="font-bold text-sm tracking-wide">{item.label}</span>}
-                            </button>
-                        )
-                    })}
-                </nav>
-
-                <div className="p-8 mt-auto flex flex-col space-y-4">
-                    <button onClick={onLogout} className="flex items-center space-x-3 text-white/40 hover:text-danger hover:bg-danger/5 p-3 rounded-xl transition-all font-bold text-xs uppercase tracking-widest border border-transparent hover:border-danger/10">
-                        <LogOut size={18} />
-                        {isSidebarOpen && <span>Logout</span>}
-                    </button>
-                    {isSidebarOpen && (
-                        <div className="pt-4 border-t border-white/5">
-                            <p className="text-[9px] text-white/20 font-black uppercase tracking-widest text-center">Copyright EVONIX v1.0</p>
-                        </div>
-                    )}
+                                EVO<span className="text-accent">SECURE</span>
+                            </motion.h1>
+                        )}
+                    </AnimatePresence>
                 </div>
-            </aside>
-        </>
-    )
-}
+            </div>
 
-export default Sidebar
+            {/* Navigation */}
+            <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+                {menuItems.map((item) => {
+                    const isActive = location.pathname === item.path;
+                    return (
+                        <button
+                            key={item.path}
+                            onClick={() => {
+                                navigate(item.path);
+                                if (window.innerWidth < 1024) onToggleSidebar(); 
+                            }}
+                            className={`group relative w-full flex items-center h-14 rounded-2xl transition-all duration-300
+                                ${isActive ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+                        >
+                            <div className={`flex items-center justify-center transition-all duration-500 ${isSidebarOpen ? 'w-16' : 'w-full'}`}>
+                                <item.icon size={22} className={isActive ? 'text-accent' : ''} />
+                            </div>
+                            
+                            {isSidebarOpen && (
+                                <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm font-bold tracking-wide">
+                                    {item.label}
+                                </motion.span>
+                            )}
+
+                            {isActive && (
+                                <motion.div layoutId="activeIndicator" className="absolute left-0 w-1.5 h-6 rounded-full bg-accent" />
+                            )}
+                        </button>
+                    );
+                })}
+            </nav>
+
+            {/* Tombol Tutup Mobile */}
+            {isSidebarOpen && (
+                <button 
+                    onClick={onToggleSidebar}
+                    className="absolute top-8 right-6 text-white/20 hover:text-white lg:hidden"
+                >
+                    <X size={24} />
+                </button>
+            )}
+            
+            <div className="p-4 mt-auto border-t border-white/5">
+                <button
+                    onClick={handleLogout}
+                    className="flex items-center w-full overflow-hidden text-red-500 transition-all duration-300 h-14 rounded-2xl bg-red-500/10 hover:bg-red-500 hover:text-white"
+                >
+                    <div className={`flex items-center justify-center ${isSidebarOpen ? 'w-16' : 'w-full'}`}>
+                        <LogOut size={20} />
+                    </div>
+                    {isSidebarOpen && <span className="text-xs font-black tracking-widest uppercase">Logout</span>}
+                </button>
+            </div>
+        </aside>
+    );
+};
+
+export default Sidebar;

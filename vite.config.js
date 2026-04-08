@@ -15,11 +15,29 @@ export default defineConfig(({ mode }) => {
           target: cameraTarget,
           changeOrigin: true,
           secure: false,
+          configure: (proxy) => {
+            proxy.on('proxyRes', (proxyRes) => {
+              const digestHeader = proxyRes.headers['www-authenticate']
+              if (digestHeader) {
+                proxyRes.headers['x-www-authenticate'] = digestHeader
+                delete proxyRes.headers['www-authenticate']
+              }
+            })
+          },
         },
         '/RPC2': {
           target: cameraTarget,
           changeOrigin: true,
           secure: false,
+          configure: (proxy) => {
+            proxy.on('proxyRes', (proxyRes) => {
+              const digestHeader = proxyRes.headers['www-authenticate']
+              if (digestHeader) {
+                proxyRes.headers['x-www-authenticate'] = digestHeader
+                delete proxyRes.headers['www-authenticate']
+              }
+            })
+          },
         },
       },
     },

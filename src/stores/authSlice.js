@@ -1,7 +1,13 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 
 const AUTH_STORAGE_KEY = 'evosecure_auth_state'
+
+try {
+    localStorage.removeItem(AUTH_STORAGE_KEY)
+} catch {
+    // ignore storage access issues
+}
 
 const defaultState = {
     isAuthenticated: false,
@@ -44,6 +50,7 @@ export const useAuthStore = create(
         }),
         {
             name: AUTH_STORAGE_KEY,
+            storage: createJSONStorage(() => sessionStorage),
             partialize: (state) => ({
                 isAuthenticated: state.isAuthenticated,
                 user: state.user,
