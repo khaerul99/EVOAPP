@@ -12,7 +12,6 @@ const authHttp = axios.create({
     timeout: ApiClient.defaults.timeout || 10000,
 })
 let activeLoginController = null
-const STRICT_DIGEST = (import.meta.env.VITE_AUTH_STRICT_DIGEST || 'true').toLowerCase() !== 'false'
 
 function getHeaderCaseInsensitive(headers, key) {
     if (!headers) {
@@ -32,6 +31,15 @@ function toFriendlyError(status) {
         return 'Server device merespons error 5xx. Endpoint login kemungkinan tidak sesuai format.'
     }
     return `Autentikasi gagal (HTTP ${status}).`
+}
+
+function isHtmlPayload(response) {
+    const contentType = String(getHeaderCaseInsensitive(response?.headers, 'content-type') || '').toLowerCase()
+    if (!contentType.includes('text/html')) {
+        return false
+    }
+    const bodyText = String(response?.data || '').toLowerCase()
+    return bodyText.includes('<!doctype html') || bodyText.includes('<html')
 }
 
 function withCacheBust(endpointPath) {
@@ -102,17 +110,23 @@ async function executeDigestAttempt({
     payload,
     signal,
 }) {
-    const bodyData = method === 'POST' ? (payload || {}) : undefined
+    const bodyData = method === 'POST'
+        ? (payload || {
+            username,
+            userName: username,
+            password,
+        })
+        : undefined
     const firstResponse = await sendPlainRequest({ endpointPath, method, bodyData, signal })
 
     let challenge = parseDigestChallenge(getHeaderCaseInsensitive(firstResponse.headers, 'www-authenticate') || '')
 
     if (!challenge && firstResponse.status >= 200 && firstResponse.status < 300) {
-        if (STRICT_DIGEST) {
+        if (isHtmlPayload(firstResponse)) {
             return {
                 ok: false,
                 status: firstResponse.status,
-                error: 'Endpoint tidak mengembalikan challenge Digest. Login dibatalkan demi keamanan.',
+                error: 'Endpoint login tidak valid (mengembalikan halaman HTML, bukan respons autentikasi).',
             }
         }
 
@@ -203,7 +217,11 @@ export async function loginWithDigest(username, password) {
         const result = await executeDigestAttempt({
             endpointPath,
             method: AUTH_METHOD,
-            payload: {},
+            payload: {
+                username,
+                userName: username,
+                password,
+            },
             username,
             password,
             signal,

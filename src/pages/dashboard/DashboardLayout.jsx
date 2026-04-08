@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, Outlet } from 'react-router-dom';
-import { useStore } from '../../stores/useStore';
+import React, { useState } from 'react';
+import { Outlet } from 'react-router-dom';
 import { Sidebar, Navbar } from '../../components/layout';
 const DashboardLayout = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);

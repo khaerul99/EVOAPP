@@ -5,13 +5,11 @@ import {
     LayoutDashboard, Video, FileBarChart, ScanFace, PlayCircle,
     LogOut, Shield, ChevronLeft, X
 } from 'lucide-react';
-import { useAuthActions } from '../../stores/useStore';
 
 
 const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { clearSession } = useAuthActions();
     
 
     const menuItems = [
@@ -23,8 +21,10 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
     ];
 
     const handleLogout = () => {
-        clearSession();
-        navigate('/login');
+        localStorage.removeItem('evosecure_session');
+        localStorage.removeItem('evosecure_auth_state');
+        localStorage.removeItem('dahua-auth');
+        navigate('/login', { replace: true });
     }
 
     return (

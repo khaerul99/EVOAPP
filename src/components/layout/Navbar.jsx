@@ -14,7 +14,6 @@ import {
   Activity,
 } from "lucide-react";
 
-import { useAuthActions } from "../../stores/useStore";
 import { useClickOutside } from "../../hooks/useClickOutside";
 
 const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
@@ -26,10 +25,10 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { clearSession } = useAuthActions();
 
   const handleLogout = () => {
-    clearSession();
+    localStorage.removeItem("evosecure_session");
+    localStorage.removeItem("evosecure_auth_state");
     localStorage.removeItem("dahua-auth");
     navigate("/login", { replace: true });
   };
