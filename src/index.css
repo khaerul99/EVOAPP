@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: theme('colors.background');
+    color: theme('colors.navy');
+    @apply font-sans antialiased;
+  }
+}
+
+@layer components {
+  .btn-navy {
+    @apply bg-navy hover:bg-navy/90 text-white font-semibold py-3 px-6 rounded-md transition-all active:scale-95;
+  }
+
+  .input-light {
+    @apply bg-accent/40 border border-transparent rounded-md py-3 px-4 focus:bg-accent/60 focus:border-navy/20 outline-none transition-all placeholder:text-navy/40;
+  }
+
+  .card-analytics {
+    @apply bg-accent/30 rounded-lg p-5 border border-white/50;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-navy/10 rounded-full hover:bg-navy/20;
+}
