@@ -1,5 +1,7 @@
 {
+  "version": 2,
   "routes": [
+    { "src": "^/api/camera/(.*)$", "dest": "/api/camera/[...path].js" },
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
