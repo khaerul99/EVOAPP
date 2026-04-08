@@ -1,13 +1,20 @@
 {
   "rewrites": [
     {
-      "source": "/cgi-bin/(.*)",
-      "destination": "http://103.194.172.70:8080/cgi-bin/$1"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "source": "/cgi-bin/:path*",
+      "destination": "http://103.194.172.70:8080/cgi-bin/:path*"
     }
-   
+  ],
+  "headers": [
+    {
+      "source": "/cgi-bin/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Credentials", "value": "true" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
+        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, WWW-Authenticate" },
+        { "key": "Access-Control-Expose-Headers", "value": "WWW-Authenticate, Authorization" }
+      ]
+    }
   ]
 }
