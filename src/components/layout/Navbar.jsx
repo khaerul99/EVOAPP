@@ -15,7 +15,8 @@ import {
 } from "lucide-react";
 
 import { useClickOutside } from "../../hooks/useClickOutside";
-import { clearSession, getSession } from "../../lib/session-helper";
+import { getSession } from "../../lib/session-helper";
+import { logout } from "../../stores/useStore"
 
 const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
   const [currentTime, setCurrentTime] = useState(
@@ -29,7 +30,7 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    clearSession();
+    logout();
     navigate("/login", { replace: true });
   };
 
@@ -232,11 +233,23 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
 
                   {/* Menu List */}
                   <div className="p-3 space-y-1 bg-white">
-                    <button className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl">
+                    <button
+                      onClick={() => {
+                        setShowAccountMenu(false);
+                        navigate("/dashboard/settings");
+                      }}
+                      className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl"
+                    >
                       <Settings size={16} />
                       <span>System Settings</span>
                     </button>
-                    <button className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl">
+                    <button
+                      onClick={() => {
+                        setShowAccountMenu(false);
+                        navigate("/dashboard/security-logs");
+                      }}
+                      className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl"
+                    >
                       <Shield size={16} />
                       <span>Security Logs</span>
                     </button>

@@ -1,4 +1,5 @@
 import { authStore } from '../stores/authSlice'
+import { addSecurityLog } from './security-log'
 
 export const SESSION_KEY = 'evosecure_session'
 export const REMEMBER_KEY = 'evosecure_remember_username'
@@ -25,7 +26,14 @@ export function saveSession(session) {
 }
 
 export function clearSession() {
+    const currentSession = getSession()
     localStorage.removeItem(SESSION_KEY)
     localStorage.removeItem('dahua-auth')
     authStore.actions.clearSession()
+    addSecurityLog({
+        level: 'warning',
+        action: 'logout',
+        message: `Logout user ${currentSession?.username || '-'}.`,
+        username: currentSession?.username || '-',
+    })
 }

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cancelLoginRequest, loginWithDigest } from '../services/auth.service'
 import { authStore } from '../stores/authSlice'
 import { REMEMBER_KEY, getSession, saveSession } from '../lib/session-helper'
+import { addSecurityLog } from '../lib/security-log'
 
 export function useLogin() {
     const navigate = useNavigate()
@@ -13,6 +14,7 @@ export function useLogin() {
     const [showPassword, setShowPassword] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState('')
+    const isSubmittingRef = useRef(false)
 
     useEffect(() => {
         const session = getSession()
@@ -36,6 +38,11 @@ export function useLogin() {
 
     const handleSubmit = async (event) => {
         event.preventDefault()
+        if (isSubmittingRef.current) {
+            return
+        }
+
+        isSubmittingRef.current = true
         setError('')
         setIsLoading(true)
         try {
@@ -59,11 +66,25 @@ export function useLogin() {
             }
 
             setPassword('')
+            addSecurityLog({
+                level: 'info',
+                action: 'login_success',
+                message: `Login berhasil untuk user ${sessionPayload.username}.`,
+                username: sessionPayload.username,
+            })
             navigate('/dashboard', { replace: true })
         } catch (requestError) {
-            setError(requestError?.message || 'Username atau password salah.')
+            const errorMessage = requestError?.message || 'Username atau password salah.'
+            setError(errorMessage)
+            addSecurityLog({
+                level: 'error',
+                action: 'login_failed',
+                message: errorMessage,
+                username: username || '-',
+            })
         } finally {
             setIsLoading(false)
+            isSubmittingRef.current = false
         }
     }
 
