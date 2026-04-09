@@ -42,6 +42,57 @@ function toFriendlyError(status) {
     return `Autentikasi gagal (HTTP ${status}).`
 }
 
+function cleanMessage(input) {
+    return String(input || '')
+        .replace(/\s+/g, ' ')
+        .replace(/<[^>]*>/g, ' ')
+        .trim()
+}
+
+function extractBackendError(response) {
+    const headerMessage = getHeaderCaseInsensitive(response?.headers, 'x-error-message')
+        || getHeaderCaseInsensitive(response?.headers, 'error-message')
+
+    if (headerMessage) {
+        return cleanMessage(headerMessage)
+    }
+
+    const data = response?.data
+    if (!data) {
+        return ''
+    }
+
+    if (typeof data === 'string') {
+        const normalized = cleanMessage(data)
+        if (!normalized) {
+            return ''
+        }
+        if (normalized.startsWith('<!doctype html') || normalized.startsWith('<html')) {
+            return ''
+        }
+        return normalized.slice(0, 240)
+    }
+
+    if (typeof data === 'object') {
+        const candidates = [
+            data.message,
+            data.error,
+            data.msg,
+            data.detail,
+            data.description,
+            data.reason,
+            data.errorMsg,
+            data.errorMessage,
+        ].filter(Boolean)
+
+        if (candidates.length > 0) {
+            return cleanMessage(candidates[0]).slice(0, 240)
+        }
+    }
+
+    return ''
+}
+
 function isHtmlPayload(response) {
     const contentType = String(getHeaderCaseInsensitive(response?.headers, 'content-type') || '').toLowerCase()
     if (!contentType.includes('text/html')) {
@@ -112,7 +163,7 @@ async function executeDigestAttempt({ endpointPath, method, username, password, 
             return {
                 ok: false,
                 status: firstResponse.status,
-                error: 'Endpoint login tidak valid (mengembalikan halaman HTML, bukan respons autentikasi).',
+                error: 'Endpoint login tidak valid',
             }
         }
 
@@ -127,12 +178,13 @@ async function executeDigestAttempt({ endpointPath, method, username, password, 
     }
 
     if (!challenge) {
+        const backendError = extractBackendError(firstResponse)
         return {
             ok: false,
             status: firstResponse.status,
-            error: firstResponse.status === 401
+            error: backendError || (firstResponse.status === 401
                 ? 'Server mengembalikan 401 tetapi header digest tidak ditemukan.'
-                : toFriendlyError(firstResponse.status),
+                : toFriendlyError(firstResponse.status)),
         }
     }
 
@@ -167,10 +219,11 @@ async function executeDigestAttempt({ endpointPath, method, username, password, 
         }
 
         if (digestResponse.status !== 401) {
+            const backendError = extractBackendError(digestResponse)
             return {
                 ok: false,
                 status: digestResponse.status,
-                error: toFriendlyError(digestResponse.status),
+                error: backendError || toFriendlyError(digestResponse.status),
             }
         }
 
@@ -178,10 +231,11 @@ async function executeDigestAttempt({ endpointPath, method, username, password, 
             getHeaderCaseInsensitive(digestResponse.headers, 'www-authenticate') || '',
         )
         if (!refreshedChallenge) {
+            const backendError = extractBackendError(digestResponse)
             return {
                 ok: false,
                 status: digestResponse.status,
-                error: 'Server mengembalikan 401 tetapi header digest tidak ditemukan.',
+                error: backendError || 'Server mengembalikan 401 tetapi header digest tidak ditemukan.',
             }
         }
         challenge = refreshedChallenge
@@ -206,21 +260,35 @@ export async function loginWithDigest(username, password) {
     const { signal } = activeLoginController
 
     try {
-        const endpointPath = withCacheBust(AUTH_PROBE_PATH)
-        const result = await executeDigestAttempt({
-            endpointPath,
-            method: AUTH_METHOD,
-            payload: { username, userName: username, password },
-            username,
-            password,
-            signal,
-        })
+        let lastError = 'Autentikasi gagal.'
 
-        if (result.ok) {
-            return result
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+            const endpointPath = withCacheBust(AUTH_PROBE_PATH)
+            const result = await executeDigestAttempt({
+                endpointPath,
+                method: AUTH_METHOD,
+                payload: { username, userName: username, password },
+                username,
+                password,
+                signal,
+            })
+
+            if (result.ok) {
+                return result
+            }
+
+            lastError = result.error || lastError
+
+            if (String(lastError).toLowerCase().includes('endpoint login tidak valid')) {
+                break
+            }
+
+            if (attempt < 2) {
+                await new Promise((resolve) => setTimeout(resolve, 120))
+            }
         }
 
-        throw new Error(result.error || 'Autentikasi gagal.')
+        throw new Error(lastError)
     } catch (error) {
         if (error?.code === 'ERR_CANCELED') {
             throw new Error('Permintaan login dibatalkan.')

@@ -9,6 +9,7 @@ const Login = () => {
         rememberMe,
         showPassword,
         isLoading,
+        loadingMessage,
         error,
         setUsername,
         setPassword,
@@ -102,6 +103,12 @@ const Login = () => {
                                 <span>Masuk ke Sistem</span>
                             )}
                         </button>
+
+                        {isLoading && loadingMessage && (
+                            <p className="text-[11px] text-center font-semibold text-navy/50">
+                                {loadingMessage}
+                            </p>
+                        )}
                     </form>
                 </div>
 
