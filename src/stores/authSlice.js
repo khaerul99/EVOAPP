@@ -75,15 +75,4 @@ export const authStore = {
       useAuthStore.getState().clearSession();
     },
   },
-
-  async logout() {
-    const currentUser = useAuthStore.getState().auth;
-    try {
-      if (currentUser?.username) {
-        await logoutService(currentUser.username);
-      }
-    } finally {
-      useAuthStore.getState().clearSession();
-    }
-  },
 };

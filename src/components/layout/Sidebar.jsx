@@ -5,7 +5,7 @@ import {
     LayoutDashboard, Video, FileBarChart, ScanFace, PlayCircle,
     LogOut, Shield, ChevronLeft, X
 } from 'lucide-react';
-import { clearSession } from '../../lib/session-helper';
+import { logout } from '../../stores/useStore';
 
 
 const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
@@ -21,8 +21,8 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
         { icon: FileBarChart, label: "Analytics", path: "/dashboard/reports" },
     ];
 
-    const handleLogout = () => {
-        clearSession();
+    const handleLogout = async () => {
+        await logout();
         navigate('/login', { replace: true });
     }
 

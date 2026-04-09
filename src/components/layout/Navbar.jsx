@@ -16,7 +16,7 @@ import {
 
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { getSession } from "../../lib/session-helper";
-import { logout } from "../../stores/useStore"
+import { logout } from "../../stores/useStore";
 
 const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
   const [currentTime, setCurrentTime] = useState(
@@ -29,8 +29,8 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate("/login", { replace: true });
   };
 
@@ -236,7 +236,7 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
                     <button
                       onClick={() => {
                         setShowAccountMenu(false);
-                        navigate("/dashboard/settings");
+                        navigate("/dashboard/system-settings");
                       }}
                       className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl"
                     >
