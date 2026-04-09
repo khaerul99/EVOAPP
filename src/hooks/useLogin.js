@@ -5,6 +5,22 @@ import { authStore } from '../stores/authSlice'
 import { REMEMBER_KEY, getSession, saveSession } from '../lib/session-helper'
 import { addSecurityLog } from '../lib/security-log'
 
+const DIGEST_LOGIN_RETRY_DELAY_MS = 2500
+const DIGEST_LOGIN_MAX_RETRY = 6
+
+function sleep(milliseconds) {
+    return new Promise((resolve) => {
+        setTimeout(resolve, milliseconds)
+    })
+}
+
+function isDigestTransientError(errorMessage) {
+    const normalized = String(errorMessage || '').toLowerCase()
+    return normalized.includes('header digest tidak ditemukan')
+        || normalized.includes('network error')
+        || normalized.includes('koneksi timeout')
+}
+
 export function useLogin() {
     const navigate = useNavigate()
 
@@ -14,6 +30,7 @@ export function useLogin() {
     const [showPassword, setShowPassword] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState('')
+    const [loadingMessage, setLoadingMessage] = useState('')
     const isSubmittingRef = useRef(false)
 
     useEffect(() => {
@@ -45,8 +62,33 @@ export function useLogin() {
         isSubmittingRef.current = true
         setError('')
         setIsLoading(true)
+        setLoadingMessage('Memverifikasi kredensial...')
         try {
-            const loginResult = await loginWithDigest(username, password)
+            let loginResult = null
+            let lastError = null
+
+            for (let attempt = 0; attempt <= DIGEST_LOGIN_MAX_RETRY; attempt += 1) {
+                try {
+                    loginResult = await loginWithDigest(username, password)
+                    lastError = null
+                    break
+                } catch (requestError) {
+                    lastError = requestError
+                    const errorMessage = requestError?.message || ''
+                    const canAutoRetry = isDigestTransientError(errorMessage) && attempt < DIGEST_LOGIN_MAX_RETRY
+                    if (!canAutoRetry) {
+                        throw requestError
+                    }
+
+                    setLoadingMessage(`Autentikasi digest diproses, mencoba ulang otomatis... (${attempt + 1}/${DIGEST_LOGIN_MAX_RETRY})`)
+                    await sleep(DIGEST_LOGIN_RETRY_DELAY_MS)
+                }
+            }
+
+            if (!loginResult && lastError) {
+                throw lastError
+            }
+
             const sessionPayload = {
                 username: loginResult?.username || username,
                 loginAt: Date.now(),
@@ -84,6 +126,7 @@ export function useLogin() {
             })
         } finally {
             setIsLoading(false)
+            setLoadingMessage('')
             isSubmittingRef.current = false
         }
     }
@@ -94,6 +137,7 @@ export function useLogin() {
         rememberMe,
         showPassword,
         isLoading,
+        loadingMessage,
         error,
         setUsername,
         setPassword,

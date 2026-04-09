@@ -28,7 +28,7 @@ export function saveSession(session) {
 export function clearSession() {
     const currentSession = getSession()
     localStorage.removeItem(SESSION_KEY)
-    localStorage.removeItem('dahua-auth')
+    // localStorage.removeItem('dahua-auth')
     authStore.actions.clearSession()
     addSecurityLog({
         level: 'warning',
