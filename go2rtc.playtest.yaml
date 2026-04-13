@@ -1,0 +1,19 @@
+api:
+  listen: ":3984"
+rtsp:
+  listen: ":38554"
+hls:
+  listen: ":3984"
+webrtc:
+  listen: ":38555"
+log:
+  level: trace
+streams:
+  t1:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/playback?channel=1&starttime=2026_04_13_16_46_00&endtime=2026_04_13_18_47_00
+  t2:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/playback?channel=1&starttime=2026_04_13_16_46_00&endtime=2026_04_13_18_47_00&subtype=0
+  t3:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&subtype=1&starttime=2026_04_13_16_46_00&endtime=2026_04_13_18_47_00
+  t4:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&subtype=0&starttime=2026_04_13_16_46_00&endtime=2026_04_13_18_47_00

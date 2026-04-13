@@ -1,11 +1,41 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import http from 'node:http'
+import https from 'node:https'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const cameraTarget = env.VITE_CAMERA_URL || 'http://103.194.172.70:8080'
   const hlsGatewayTarget = env.VITE_HLS_GATEWAY_URL || 'http://localhost:1984'
+  const cameraAgent = cameraTarget.startsWith('https://')
+    ? new https.Agent({ keepAlive: false })
+    : new http.Agent({ keepAlive: false })
+
+  const attachDigestHeaderRewrite = (proxy) => {
+    proxy.on('error', (err, req, res) => {
+      const message = err?.message || 'Proxy error'
+      // Prevent dev server crash when upstream camera sends malformed close frames.
+      if (res && !res.writableEnded) {
+        if (!res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' })
+        }
+        res.end(JSON.stringify({ message: 'Camera proxy failed', detail: message }))
+      }
+    })
+
+    proxy.on('proxyReq', (proxyReq) => {
+      proxyReq.setHeader('Connection', 'close')
+    })
+
+    proxy.on('proxyRes', (proxyRes) => {
+      const digestHeader = proxyRes.headers['www-authenticate']
+      if (digestHeader) {
+        proxyRes.headers['x-www-authenticate'] = digestHeader
+        delete proxyRes.headers['www-authenticate']
+      }
+    })
+  }
 
   return {
     plugins: [react()],
@@ -16,43 +46,22 @@ export default defineConfig(({ mode }) => {
           target: cameraTarget,
           changeOrigin: true,
           secure: false,
-          configure: (proxy) => {
-            proxy.on('proxyRes', (proxyRes) => {
-              const digestHeader = proxyRes.headers['www-authenticate']
-              if (digestHeader) {
-                proxyRes.headers['x-www-authenticate'] = digestHeader
-                delete proxyRes.headers['www-authenticate']
-              }
-            })
-          },
+          agent: cameraAgent,
+          configure: attachDigestHeaderRewrite,
         },
         '/RPC2': {
           target: cameraTarget,
           changeOrigin: true,
           secure: false,
-          configure: (proxy) => {
-            proxy.on('proxyRes', (proxyRes) => {
-              const digestHeader = proxyRes.headers['www-authenticate']
-              if (digestHeader) {
-                proxyRes.headers['x-www-authenticate'] = digestHeader
-                delete proxyRes.headers['www-authenticate']
-              }
-            })
-          },
+          agent: cameraAgent,
+          configure: attachDigestHeaderRewrite,
         },
         '/cam': {
           target: cameraTarget,
           changeOrigin: true,
           secure: false,
-          configure: (proxy) => {
-            proxy.on('proxyRes', (proxyRes) => {
-              const digestHeader = proxyRes.headers['www-authenticate']
-              if (digestHeader) {
-                proxyRes.headers['x-www-authenticate'] = digestHeader
-                delete proxyRes.headers['www-authenticate']
-              }
-            })
-          },
+          agent: cameraAgent,
+          configure: attachDigestHeaderRewrite,
         },
         '/go2rtc': {
           target: hlsGatewayTarget,

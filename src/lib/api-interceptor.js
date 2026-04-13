@@ -30,6 +30,37 @@ function getBodyString(data) {
     }
 }
 
+function buildUriWithParams(url, params) {
+    const baseUri = getRequestUri(url || '/')
+    if (!params || typeof params !== 'object') {
+        return baseUri
+    }
+
+    const [pathOnly, existingQuery = ''] = String(baseUri).split('?')
+    const searchParams = new URLSearchParams(existingQuery)
+
+    Object.entries(params).forEach(([key, value]) => {
+        if (value === undefined || value === null) {
+            return
+        }
+
+        if (Array.isArray(value)) {
+            value.forEach((entry) => {
+                if (entry === undefined || entry === null) {
+                    return
+                }
+                searchParams.append(key, String(entry))
+            })
+            return
+        }
+
+        searchParams.append(key, String(value))
+    })
+
+    const nextQuery = searchParams.toString()
+    return nextQuery ? `${pathOnly}?${nextQuery}` : pathOnly
+}
+
 function appendDigestHeader(config, authState) {
     if (!canUseDigest(authState)) {
         return config
@@ -38,7 +69,7 @@ function appendDigestHeader(config, authState) {
     const nextCounter = (authState.nc || 0) + 1
     const nc = formatNc(nextCounter)
     const cnonce = createCnonce()
-    const uri = getRequestUri(config.url || '/')
+    const uri = buildUriWithParams(config.url || '/', config.params)
     const method = config.method || 'GET'
     const body = getBodyString(config.data)
 

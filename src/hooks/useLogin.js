@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cancelLoginRequest, loginWithDigest } from '../services/auth.service'
+import { warmupDigestChallenge } from '../services/digest-warmup.service'
 import { authStore } from '../stores/authSlice'
 import { REMEMBER_KEY, getSession, saveSession } from '../lib/session-helper'
 import { addSecurityLog } from '../lib/security-log'
@@ -100,6 +101,8 @@ export function useLogin() {
                 digestSecret: loginResult?.digestSecret || null,
                 challenge: loginResult?.challenge || null,
             })
+            // Non-blocking warm-up to reduce first-hit 401 on feature endpoints.
+            warmupDigestChallenge().catch(() => {})
 
             if (rememberMe) {
                 localStorage.setItem(REMEMBER_KEY, username)
