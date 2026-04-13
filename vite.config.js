@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const cameraTarget = env.VITE_CAMERA_URL || 'http://103.194.172.70:8080'
+  const hlsGatewayTarget = env.VITE_HLS_GATEWAY_URL || 'http://localhost:1984'
 
   return {
     plugins: [react()],
@@ -38,6 +39,26 @@ export default defineConfig(({ mode }) => {
               }
             })
           },
+        },
+        '/cam': {
+          target: cameraTarget,
+          changeOrigin: true,
+          secure: false,
+          configure: (proxy) => {
+            proxy.on('proxyRes', (proxyRes) => {
+              const digestHeader = proxyRes.headers['www-authenticate']
+              if (digestHeader) {
+                proxyRes.headers['x-www-authenticate'] = digestHeader
+                delete proxyRes.headers['www-authenticate']
+              }
+            })
+          },
+        },
+        '/go2rtc': {
+          target: hlsGatewayTarget,
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/go2rtc/, ''),
         },
       },
     },
