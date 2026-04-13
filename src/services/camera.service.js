@@ -1,24 +1,5 @@
 import ApiClient from "../lib/api";
 
-function getCameraHost() {
-    const configuredHost = import.meta.env.VITE_CAMERA_URL;
-    if (configuredHost) {
-        try {
-            return new URL(configuredHost).hostname;
-        } catch {
-            // Ignore invalid env URL and fallback to client baseURL.
-        }
-    }
-
-    const baseUrl = ApiClient?.defaults?.baseURL || "";
-    try {
-        const resolved = new URL(baseUrl, window.location.origin);
-        return resolved.hostname;
-    } catch {
-        return window.location.hostname || "127.0.0.1";
-    }
-}
-
 function parseKeyValuePayload(rawData) {
     const payload = typeof rawData === "string" ? rawData : String(rawData || "");
     const output = {};
@@ -135,7 +116,6 @@ function resolveChannelIndex(device) {
 }
 
 function mapRemoteDevicesByChannelIndex(remoteDevices) {
-    const mapped = {};
     const sorted = [...(remoteDevices || [])].sort((left, right) =>
         String(left.objectId || "").localeCompare(String(right.objectId || ""), undefined, {
             numeric: true,
@@ -143,8 +123,10 @@ function mapRemoteDevicesByChannelIndex(remoteDevices) {
         }),
     );
 
-    return sortedDeviceIds.reduce((accumulator, objectId, index) => {
-        accumulator[index] = groupedByDeviceId[objectId];
+    return sorted.reduce((accumulator, device, index) => {
+        const resolvedIndex = resolveChannelIndex(device);
+        const safeIndex = resolvedIndex !== null && resolvedIndex >= 0 ? resolvedIndex : index;
+        accumulator[safeIndex] = device;
         return accumulator;
     }, {});
 }
@@ -177,7 +159,6 @@ function normalizeRecordFlag(value) {
 }
 
 function toCameraRows(channelTitles, remoteDevices) {
-    const host = getCameraHost();
     const indexes = new Set([
         ...Object.keys(channelTitles).map((key) => Number(key)),
         ...Object.keys(remoteDevices).map((key) => Number(key)),
@@ -218,7 +199,7 @@ export const cameraService = {
 
         const channelTitles = parseChannelTitles(channelTitleResult.value?.data);
         const remoteDevices = remoteDeviceResult.status === "fulfilled"
-            ? parseRemoteDevices(remoteDeviceResult.value?.data)
+            ? mapRemoteDevicesByChannelIndex(parseRemoteDevices(remoteDeviceResult.value?.data))
             : {};
 
         return toCameraRows(channelTitles, remoteDevices);

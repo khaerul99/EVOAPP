@@ -1,0 +1,13 @@
+api:
+  listen: ":2984"
+rtsp:
+  listen: ":28554"
+hls:
+  listen: ":2984"
+webrtc:
+  listen: ":28555"
+log:
+  level: trace
+streams:
+  test-playback:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&subtype=0&starttime=2026_04_13_17_36_00&endtime=2026_04_13_17_46_00

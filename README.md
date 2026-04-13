@@ -36,6 +36,33 @@ Modern, elegant, and technological CCTV monitoring interface built with React an
     - **Username**: `admin`
     - **Password**: `password123`
 
+## Playback/Live Stream Setup (Automatic, No Manual Copy)
+
+UI player membutuhkan gateway untuk mengubah RTSP kamera menjadi HLS (`.m3u8`). Project ini sudah disiapkan memakai `go2rtc`.
+
+1.  Pastikan Docker aktif.
+2.  Jalankan gateway stream:
+    ```bash
+    npm run stream:up
+    ```
+3.  Isi kredensial RTSP di `.env.local`:
+    - `VITE_RTSP_USERNAME`
+    - `VITE_RTSP_PASSWORD`
+    - `VITE_RTSP_PORT` (default `554`)
+4.  Jalankan app:
+    ```bash
+    npm run dev
+    ```
+
+Template HLS default sudah diarahkan ke:
+- `http://localhost:1984/api/stream.m3u8?src={rtspEncoded}`
+
+Perintah tambahan:
+```bash
+npm run stream:logs
+npm run stream:down
+```
+
 ## Technical Stack
 - **Framework**: React 18 (Vite)
 - **Styling**: Tailwind CSS 3

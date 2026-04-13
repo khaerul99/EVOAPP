@@ -1,0 +1,52 @@
+api:
+  listen: ":1984"
+
+rtsp:
+  listen: ":8554"
+
+hls:
+  listen: ":1984"
+
+webrtc:
+  listen: ":8555"
+streams:
+  playback-ch1:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&starttime=2026_04_13_17_00_00&endtime=2026_04_13_17_05_00&subtype=1
+  playback-ch2:
+    - rtsp://admin:mynetoke321@103.194.172.70:554/cam/playback?channel=2&starttime=2026_04_09_21_00_00&endtime=2026_04_09_21_36_00
+  live-ch1-s0:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&subtype=0&unicast=true&proto=Onvif
+  live-ch1-s1:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&subtype=1&unicast=true&proto=Onvif
+  live-ch2-s1:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=2&subtype=1&unicast=true&proto=Onvif
+  live-ch3-s1:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=3&subtype=1&unicast=true&proto=Onvif
+  live-ch3-s0:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=3&subtype=0
+  live-ch2-s0:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=2&subtype=0
+  live-ch4-s0:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=4&subtype=0
+  test-live:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&subtype=0&unicast=true&proto=Onvif
+  live-ch4-s1:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=4&subtype=1&unicast=true&proto=Onvif
+  playback-ch1-2026-04-13-18-46-00-2026-04-13-18-56-00-s1:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&starttime=2026_04_13_18_46_00&endtime=2026_04_13_18_56_00&subtype=1
+  playback-ch1-2026-04-13-18-54-00-2026-04-13-18-56-00-s1:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&starttime=2026_04_13_18_54_00&endtime=2026_04_13_18_56_00&subtype=1
+  playback-ch1-2026-04-13-18-59-00-2026-04-13-19-09-00-s0:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&starttime=2026_04_13_18_59_00&endtime=2026_04_13_19_09_00&subtype=0
+  playback-ch1-2026-04-13-17-59-00-2026-04-13-18-02-00-s0:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&starttime=2026_04_13_17_59_00&endtime=2026_04_13_18_02_00&subtype=0
+  playback-ch1-2026-04-13-18-00-00-2026-04-13-18-04-00-s0:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&starttime=2026_04_13_18_00_00&endtime=2026_04_13_18_04_00&subtype=0
+  playback-ch1-2026-04-13-19-47-00-2026-04-13-19-57-00-s1:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&starttime=2026_04_13_19_47_00&endtime=2026_04_13_19_57_00&subtype=1
+  playback-ch1-2026-04-13-14-44-00-2026-04-13-16-46-00-s0:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&starttime=2026_04_13_14_44_00&endtime=2026_04_13_16_46_00&subtype=0
+  playback-ch1-2026-04-13-16-46-00-2026-04-13-18-47-00-s0:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&starttime=2026_04_13_16_46_00&endtime=2026_04_13_18_47_00&subtype=0
+  playback-ch1-2026-04-13-16-46-00-2026-04-13-18-47-00-s1:
+    - rtsp://admin:mynetoke321%21%23@103.194.172.70:554/cam/realmonitor?channel=1&starttime=2026_04_13_16_46_00&endtime=2026_04_13_18_47_00&subtype=1
