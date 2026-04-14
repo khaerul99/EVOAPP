@@ -3,7 +3,7 @@ import {
     Plus, Layout, Grid, List, MoreHorizontal,
     Edit3, Trash2, Search, Filter, X, ChevronLeft, ChevronRight, AlertTriangle
 } from 'lucide-react';
-import { cameraService } from '../../services/camera.service';
+import { cameraService } from '../../../services/camera/camera.service';
 
 const DIGEST_RETRY_DELAY_MS = 2500;
 

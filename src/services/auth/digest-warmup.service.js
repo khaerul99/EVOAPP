@@ -1,4 +1,4 @@
-import ApiClient from "../lib/api";
+import ApiClient from "../../lib/api";
 
 const DEFAULT_WARMUP_PATHS = [
     "/cgi-bin/configManager.cgi?action=getConfig&name=ChannelTitle",

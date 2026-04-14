@@ -1,13 +1,13 @@
 import axios from 'axios'
-import ApiClient from '../lib/api'
-import { AUTH_METHOD, AUTH_PROBE_PATH, getRequestUri } from '../lib/api-config'
+import ApiClient from '../../lib/api'
+import { AUTH_METHOD, AUTH_PROBE_PATH, getRequestUri } from '../../lib/api-config'
 import {
     buildDigestAuthorizationHeader,
     computeDigestSecret,
     createCnonce,
     formatNc,
     parseDigestChallenge,
-} from '../lib/auth-helper'
+} from '../../lib/auth-helper'
 
 const authHttp = axios.create({
     baseURL: ApiClient.defaults.baseURL,
@@ -305,10 +305,6 @@ export async function loginWithDigest(username, password) {
             activeLoginController = null
         }
     }
-}
-
-export async function logout() {
-    return Promise.resolve()
 }
 
 export function cancelLoginRequest() {

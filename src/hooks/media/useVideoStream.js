@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import ApiClient from '../lib/api'
+import ApiClient from '../../lib/api'
 
 export function useVideoStream() {
     const baseUrl = useMemo(() => ApiClient.defaults.baseURL || '/', [])

@@ -1,6 +1,6 @@
 import React from 'react'
 import { Eye, EyeOff, Lock, User, ShieldAlert, Cpu } from 'lucide-react'
-import { useLogin } from '../../hooks/useLogin'
+import { useLogin } from '../../hooks/auth/useLogin'
 
 const Login = () => {
     const {

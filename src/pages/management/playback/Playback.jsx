@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import { Calendar, Clock3, Loader2, PlayCircle, Radio, Search, Signal } from 'lucide-react';
-import { cameraService } from '../../services/camera.service';
-import { playbackService } from '../../services/playback.service';
+import { cameraService } from '../../../services/camera/camera.service';
+import { playbackService } from '../../../services/playback/playback.service';
 
 function toLocalDateInputValue(date) {
     const value = new Date(date);
@@ -669,22 +669,22 @@ const Playback = () => {
                     </div>
 
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                        <div className="rounded-2xl border border-navy/10 bg-white p-4">
+                        <div className="p-4 bg-white border rounded-2xl border-navy/10">
                             <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">Channel Aktif</p>
                             <p className="mt-2 text-sm font-bold text-navy">{selectedChannel?.channelName || selectedChannel?.name || `Channel ${form.channel}`}</p>
                         </div>
-                        <div className="rounded-2xl border border-navy/10 bg-white p-4">
+                        <div className="p-4 bg-white border rounded-2xl border-navy/10">
                             <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">Preset</p>
                             <p className="mt-2 text-sm font-bold text-navy">{form.subtype === '1' ? 'Hemat Data (Substream)' : 'Kualitas Tinggi (Mainstream)'}</p>
                         </div>
-                        <div className="rounded-2xl border border-navy/10 bg-white p-4">
+                        <div className="p-4 bg-white border rounded-2xl border-navy/10">
                             <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">Mode Render</p>
                             <p className="mt-2 text-sm font-bold text-navy">{activeTransportLabel}</p>
                         </div>
                     </div>
 
                     {mode === 'playback' && (
-                        <div className="rounded-2xl border border-navy/10 bg-white p-4 md:p-5">
+                        <div className="p-4 bg-white border rounded-2xl border-navy/10 md:p-5">
                             <div className="flex items-center justify-between gap-3">
                                 <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">Daftar Rekaman</p>
                                 <button
@@ -698,7 +698,7 @@ const Playback = () => {
                             </div>
 
                             {recordingError && (
-                                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                                <div className="p-3 mt-3 border rounded-xl border-amber-200 bg-amber-50">
                                     <p className="text-[11px] font-bold text-amber-700">{recordingError}</p>
                                 </div>
                             )}
@@ -711,7 +711,7 @@ const Playback = () => {
                             )}
 
                             {!isLoadingRecordings && recordings.length > 0 && (
-                                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <div className="grid grid-cols-1 gap-3 mt-3 md:grid-cols-2">
                                     {recordings.map((record, index) => {
                                         const key = `${record?.beginTime || ''}|${record?.endTime || ''}|${record?.filePath || ''}|${index}`;
                                         const active = selectedRecordingKey === key;
@@ -739,8 +739,8 @@ const Playback = () => {
                 </section>
 
                 <aside className="space-y-6 xl:col-span-2">
-                    <div className="h-full rounded-3xl border border-navy/10 bg-white p-6 shadow-sm">
-                        <h3 className="mb-5 text-xs font-black uppercase tracking-widest text-navy/45">Stream Controls</h3>
+                    <div className="h-full p-6 bg-white border shadow-sm rounded-3xl border-navy/10">
+                        <h3 className="mb-5 text-xs font-black tracking-widest uppercase text-navy/45">Stream Controls</h3>
 
                         <div className="space-y-3">
                             <label className="text-[10px] font-black uppercase tracking-widest text-navy/45">Date</label>
@@ -748,14 +748,14 @@ const Playback = () => {
                                 type="date"
                                 value={form.selectedDate}
                                 onChange={(event) => updateField('selectedDate', event.target.value)}
-                                className="w-full rounded-xl border border-navy/15 bg-white px-4 py-3 text-xs font-bold outline-none transition-all focus:border-navy/25"
+                                className="w-full px-4 py-3 text-xs font-bold transition-all bg-white border outline-none rounded-xl border-navy/15 focus:border-navy/25"
                             />
 
                             <label className="text-[10px] font-black uppercase tracking-widest text-navy/45">Channel</label>
                             <select
                                 value={form.channel}
                                 onChange={(event) => updateField('channel', event.target.value)}
-                                className="w-full rounded-xl border border-navy/15 bg-white px-4 py-3 text-xs font-bold outline-none transition-all focus:border-navy/25"
+                                className="w-full px-4 py-3 text-xs font-bold transition-all bg-white border outline-none rounded-xl border-navy/15 focus:border-navy/25"
                                 disabled={isLoadingChannels}
                             >
                                 {channelOptions.map((channelOption) => (
@@ -837,7 +837,7 @@ const Playback = () => {
                                         type="datetime-local"
                                         value={form.starttime}
                                         onChange={(event) => updateField('starttime', event.target.value)}
-                                        className="w-full rounded-xl border border-navy/15 bg-white px-4 py-3 text-xs font-bold outline-none transition-all focus:border-navy/25"
+                                        className="w-full px-4 py-3 text-xs font-bold transition-all bg-white border outline-none rounded-xl border-navy/15 focus:border-navy/25"
                                     />
 
                                     <label className="text-[10px] font-black uppercase tracking-widest text-navy/45">End Time</label>
@@ -845,7 +845,7 @@ const Playback = () => {
                                         type="datetime-local"
                                         value={form.endtime}
                                         onChange={(event) => updateField('endtime', event.target.value)}
-                                        className="w-full rounded-xl border border-navy/15 bg-white px-4 py-3 text-xs font-bold outline-none transition-all focus:border-navy/25"
+                                        className="w-full px-4 py-3 text-xs font-bold transition-all bg-white border outline-none rounded-xl border-navy/15 focus:border-navy/25"
                                     />
 
                                     <button
@@ -872,7 +872,7 @@ const Playback = () => {
                         </button>
 
                         <div className="mt-5 space-y-3">
-                            <div className="rounded-xl border border-slate-200 bg-slate-50/90 p-3">
+                            <div className="p-3 border rounded-xl border-slate-200 bg-slate-50/90">
                                 <div className="flex items-center gap-2">
                                     <Signal size={14} className="text-slate-500" />
                                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Transport</p>
@@ -883,62 +883,62 @@ const Playback = () => {
                                 )}
                             </div>
 
-                            {mode === 'playback' && (
-                                <div className="rounded-xl border border-sky-200 bg-sky-50/80 p-3">
+                            {/* {mode === 'playback' && (
+                                <div className="p-3 border rounded-xl border-sky-200 bg-sky-50/80">
                                     <div className="flex items-center gap-2">
                                         <Clock3 size={14} className="text-sky-700" />
                                         <p className="text-[10px] font-black uppercase tracking-widest text-sky-700">Playback Window</p>
                                     </div>
                                     <p className="mt-1 text-[11px] text-sky-900">{form.starttime} sampai {form.endtime}</p>
                                 </div>
-                            )}
+                            )} */}
 
-                            {activeSourceInfo?.hlsUrl && (
-                                <div className="rounded-xl border border-navy/10 bg-background p-3">
+                            {/* {activeSourceInfo?.hlsUrl && (
+                                <div className="p-3 border rounded-xl border-navy/10 bg-background">
                                     <div className="flex items-center gap-2">
                                         <Calendar size={14} className="text-navy/45" />
                                         <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">HLS URL</p>
                                     </div>
                                     <p className="mt-1 break-all font-mono text-[11px] text-navy/70">{activeSourceInfo.hlsUrl}</p>
                                 </div>
-                            )}
+                            )} */}
 
                             {activeSourceInfo?.rtspUrl && (
-                                <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-3">
+                                <div className="p-3 border rounded-xl border-emerald-200 bg-emerald-50/80">
                                     <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">RTSP URL (VLC)</p>
                                     <p className="mt-1 break-all font-mono text-[11px] text-emerald-900">{activeSourceInfo.rtspUrl}</p>
                                 </div>
                             )}
 
                             {activeSourceInfo?.livePlayerUrl && mode === 'live' && (
-                                <div className="rounded-xl border border-sky-200 bg-sky-50/80 p-3">
+                                <div className="p-3 border rounded-xl border-sky-200 bg-sky-50/80">
                                     <p className="text-[10px] font-black uppercase tracking-widest text-sky-700">Live Player URL</p>
                                     <p className="mt-1 break-all font-mono text-[11px] text-sky-900">{activeSourceInfo.livePlayerUrl}</p>
                                 </div>
                             )}
 
                             {activeSourceInfo?.playbackPlayerUrl && mode === 'playback' && (
-                                <div className="rounded-xl border border-indigo-200 bg-indigo-50/80 p-3">
+                                <div className="p-3 border border-indigo-200 rounded-xl bg-indigo-50/80">
                                     <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">Playback Player URL</p>
                                     <p className="mt-1 break-all font-mono text-[11px] text-indigo-900">{activeSourceInfo.playbackPlayerUrl}</p>
                                 </div>
                             )}
 
                             {go2rtcDiagnostic && (
-                                <div className="rounded-xl border border-rose-200 bg-rose-50 p-3">
+                                <div className="p-3 border rounded-xl border-rose-200 bg-rose-50">
                                     <p className="text-[10px] font-black uppercase tracking-widest text-rose-700">go2rtc Diagnostic</p>
                                     <p className="mt-1 break-all font-mono text-[11px] text-rose-900">{go2rtcDiagnostic}</p>
                                 </div>
                             )}
 
                             {playerError && (
-                                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                                <div className="p-3 border rounded-xl border-amber-200 bg-amber-50">
                                     <p className="text-[11px] font-bold text-amber-700">{playerError}</p>
                                 </div>
                             )}
 
                             {error && (
-                                <div className="rounded-xl border border-danger/20 bg-danger/10 p-3">
+                                <div className="p-3 border rounded-xl border-danger/20 bg-danger/10">
                                     <p className="text-[11px] font-bold text-danger">{error}</p>
                                 </div>
                             )}

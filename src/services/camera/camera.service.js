@@ -1,4 +1,4 @@
-import ApiClient from "../lib/api";
+import ApiClient from "../../lib/api";
 
 function parseKeyValuePayload(rawData) {
     const payload = typeof rawData === "string" ? rawData : String(rawData || "");

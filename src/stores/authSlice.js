@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { logout as logoutService } from "../services/auth.service";
 
 const AUTH_STORAGE_KEY = "evosecure_auth_state";
 

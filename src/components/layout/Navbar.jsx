@@ -14,7 +14,7 @@ import {
   Activity,
 } from "lucide-react";
 
-import { useClickOutside } from "../../hooks/useClickOutside";
+import { useClickOutside } from "../../hooks/common/useClickOutside";
 import { getSession } from "../../lib/session-helper";
 import { logout } from "../../stores/useStore";
 

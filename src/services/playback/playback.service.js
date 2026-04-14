@@ -1,4 +1,4 @@
-import ApiClient from "../lib/api";
+import ApiClient from "../../lib/api";
 
 function formatPlaybackTimestamp(value) {
     if (!value) {

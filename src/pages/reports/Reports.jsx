@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BarChart2, Calendar, Download, RefreshCcw, ShieldAlert } from 'lucide-react';
-import { cameraService } from '../../services/camera.service';
+import { cameraService } from '../../services/camera/camera.service';
 import { getSecurityLogs } from '../../lib/security-log';
 import { exportAnalyticsWorkbook } from './report-export.util';
 

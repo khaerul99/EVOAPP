@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { cancelLoginRequest, loginWithDigest } from '../services/auth.service'
-import { warmupDigestChallenge } from '../services/digest-warmup.service'
-import { authStore } from '../stores/authSlice'
-import { REMEMBER_KEY, getSession, saveSession } from '../lib/session-helper'
-import { addSecurityLog } from '../lib/security-log'
+import { cancelLoginRequest, loginWithDigest } from '../../services/auth/auth.service'
+import { warmupDigestChallenge } from '../../services/auth/digest-warmup.service'
+import { authStore } from '../../stores/authSlice'
+import { REMEMBER_KEY, getSession, saveSession } from '../../lib/session-helper'
+import { addSecurityLog } from '../../lib/security-log'
 
 const DIGEST_LOGIN_RETRY_DELAY_MS = 2500
 const DIGEST_LOGIN_MAX_RETRY = 6

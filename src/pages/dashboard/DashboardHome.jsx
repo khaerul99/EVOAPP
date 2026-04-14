@@ -3,8 +3,8 @@ import {
     Users, ScanFace, Brain, Cctv, Activity, WifiOff,
     ChevronRight, Shield, PlayCircle, Square
 } from 'lucide-react';
-import { useDashboard } from '../../hooks/useDashboard';
-import { playbackService } from '../../services/playback.service';
+import { useDashboard } from '../../hooks/dashboard/useDashboard';
+import { playbackService } from '../../services/playback/playback.service';
 
 const DashboardHome = () => {
     const {
