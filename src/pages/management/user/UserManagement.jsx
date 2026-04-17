@@ -12,6 +12,46 @@ import {
     Shield,
 } from 'lucide-react';
 import { useUserManagement } from '../../../hooks/user/useUserManagement';
+import PermissionManagement from '../../../components/user/PermissionManagement';
+
+const AUTHORITY_OPTIONS = [
+    { value: 'AuthUserMag', label: 'AuthUserMag' },
+    { value: 'AuthSysCfg', label: 'AuthSysCfg' },
+    { value: 'AuthSysInfo', label: 'AuthSysInfo' },
+    { value: 'AuthManuCtr', label: 'AuthManuCtr' },
+    { value: 'AuthBackup', label: 'AuthBackup' },
+    { value: 'AuthStoreCfg', label: 'AuthStoreCfg' },
+    { value: 'AuthEventCfg', label: 'AuthEventCfg' },
+    { value: 'AuthNetCfg', label: 'AuthNetCfg' },
+    { value: 'AuthRmtDevice', label: 'AuthRmtDevice' },
+    { value: 'AuthPeripheral', label: 'AuthPeripheral' },
+    { value: 'AuthDisplay', label: 'AuthDisplay' },
+    { value: 'AuthPTZ', label: 'AuthPTZ' },
+    { value: 'AuthSecurity', label: 'AuthSecurity' },
+    { value: 'AuthMaintence', label: 'AuthMaintence' },
+    { value: 'AuthTaskMag', label: 'AuthTaskMag' },
+];
+
+function parseAuthorityValues(authorityText) {
+    return String(authorityText || '')
+        .split(',')
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean);
+}
+
+function setAuthorityValue(currentValue, token, checked) {
+    const values = parseAuthorityValues(currentValue);
+    const preserved = values.filter((entry) => !AUTHORITY_OPTIONS.some((option) => option.value === entry));
+    const optionValues = new Set(values.filter((entry) => AUTHORITY_OPTIONS.some((option) => option.value === entry)));
+
+    if (checked) {
+        optionValues.add(token);
+    } else {
+        optionValues.delete(token);
+    }
+
+    return [...preserved, ...AUTHORITY_OPTIONS.map((option) => option.value).filter((entry) => optionValues.has(entry))].join(',');
+}
 
 const UserManagement = () => {
     const {
@@ -47,6 +87,14 @@ const UserManagement = () => {
         userGroups,
         selectedGroupUsers,
         selectedGroupInfo,
+        selectedAttributeInfo,
+        selectedAttributeUser,
+        selectedUserForAttribute,
+        setSelectedUserForAttribute,
+        selectedUserForPermission,
+        setSelectedUserForPermission,
+        onvifAvailable,
+        onvifUsers,
     } = useUserManagement();
 
     const isAttributeTab = activeTab === 'attribute';
@@ -114,7 +162,12 @@ const UserManagement = () => {
                     <div className="p-3">
                         <button
                             type="button"
-                            onClick={() => setIsTreeExpanded((previous) => !previous)}
+                            onClick={() => {
+                                setSelectedGroup('all');
+                                setSelectedUserForAttribute(null);
+                                setActiveTab('attribute');
+                                setIsTreeExpanded((previous) => !previous);
+                            }}
                             className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition-colors border ${isTreeExpanded ? 'border-navy/80 bg-navy/5 text-navy' : 'border-navy/15 bg-white text-navy/60 hover:bg-navy/5 hover:text-navy'}`}
                         >
                             <span className="flex items-center gap-3">
@@ -138,7 +191,9 @@ const UserManagement = () => {
                                                 type="button"
                                                 onClick={() => {
                                                     setSelectedGroup(group.groupName);
+                                                    setSelectedUserForAttribute(null);
                                                     toggleGroupExpanded(group.groupName);
+                                                    setActiveTab('attribute');
                                                 }}
                                                 className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition-colors ${isActiveGroup ? 'bg-white text-navy shadow-sm' : 'text-navy/60 hover:bg-white hover:text-navy'}`}
                                             >
@@ -157,14 +212,19 @@ const UserManagement = () => {
                                                         <button
                                                             key={`${group.groupName}-${user.name}`}
                                                             type="button"
-                                                            onClick={() => openEditModal(user)}
-                                                            className="flex items-center justify-between w-full px-3 py-2 text-left transition-colors rounded-xl text-navy/45 hover:bg-white hover:text-navy"
+                                                            onClick={() => {
+                                                                setSelectedGroup(group.groupName);
+                                                                setSelectedUserForAttribute(user.name);
+                                                                setSelectedUserForPermission(user.name);
+                                                                setActiveTab('attribute');
+                                                            }}
+                                                            className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition-colors ${selectedUserForAttribute === user.name ? 'bg-white text-navy shadow-sm' : 'text-navy/45 hover:bg-white hover:text-navy'}`}
                                                         >
                                                             <span className="flex items-center gap-2">
                                                                 <Users size={14} />
                                                                 <span className="text-[11px] font-bold">{user.name}</span>
                                                             </span>
-                                                            <span className="text-[10px] font-bold uppercase tracking-widest text-navy/25">Edit</span>
+                                                            <span className="text-[10px] font-bold uppercase tracking-widest text-navy/25">View</span>
                                                         </button>
                                                     ))}
                                                 </div>
@@ -172,6 +232,54 @@ const UserManagement = () => {
                                         </div>
                                     );
                                 })}
+
+                                {onvifAvailable && (
+                                    <div className="p-2 border rounded-2xl border-navy/5 bg-background/60">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedGroup('onvif');
+                                                setSelectedUserForAttribute(null);
+                                                setSelectedUserForPermission(null);
+                                                toggleGroupExpanded('onvif');
+                                                setActiveTab('attribute');
+                                            }}
+                                            className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition-colors ${selectedGroup === 'onvif' ? 'bg-white text-navy shadow-sm' : 'text-navy/60 hover:bg-white hover:text-navy'}`}
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                {isGroupExpanded('onvif') ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                <span className="text-xs font-black tracking-widest uppercase">Onvif</span>
+                                            </span>
+                                            <span className="rounded-full bg-navy/5 px-2 py-1 text-[10px] font-black text-navy/50">
+                                                {onvifUsers.length}
+                                            </span>
+                                        </button>
+
+                                        {isGroupExpanded('onvif') && (
+                                            <div className="pl-4 mt-2 space-y-1">
+                                                {onvifUsers.map((user) => (
+                                                    <button
+                                                        key={`onvif-${user.name}`}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setSelectedGroup('onvif');
+                                                            setSelectedUserForAttribute(user.name);
+                                                            setSelectedUserForPermission(null);
+                                                            setActiveTab('attribute');
+                                                        }}
+                                                        className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition-colors ${selectedGroup === 'onvif' && selectedUserForAttribute === user.name ? 'bg-white text-navy shadow-sm' : 'text-navy/45 hover:bg-white hover:text-navy'}`}
+                                                    >
+                                                        <span className="flex items-center gap-2">
+                                                            <Users size={14} />
+                                                            <span className="text-[11px] font-bold">{user.name}</span>
+                                                        </span>
+                                                        <span className="text-[10px] font-bold uppercase tracking-widest text-navy/25">View</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -204,7 +312,7 @@ const UserManagement = () => {
                                             <label className="text-sm font-medium text-navy/80">Name</label>
                                             <input
                                                 type="text"
-                                                value={selectedGroupInfo.name}
+                                                value={selectedAttributeInfo.name}
                                                 readOnly
                                                 className="w-full px-4 py-2 text-sm font-medium border rounded-md outline-none border-navy/10 bg-background text-navy"
                                             />
@@ -213,118 +321,93 @@ const UserManagement = () => {
                                             <label className="text-sm font-medium text-navy/80">Parent Node</label>
                                             <input
                                                 type="text"
-                                                value={selectedGroupInfo.parent}
+                                                value={selectedAttributeInfo.parent}
                                                 readOnly
                                                 className="w-full px-4 py-2 text-sm font-medium border rounded-md outline-none border-navy/10 bg-background text-navy"
                                             />
                                         </div>
+                                        {selectedAttributeInfo.isUserNode && (
+                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-[120px_1fr] md:items-center">
+                                                <label className="text-sm font-medium text-navy/80">Password</label>
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <input
+                                                            type="text"
+                                                            value={selectedAttributeInfo.password}
+                                                            readOnly
+                                                            className="w-full px-4 py-2 font-mono text-sm font-medium border rounded-md outline-none border-navy/10 bg-background text-navy"
+                                                        />
+                                                       
+                                                    </div>
+                                                    <div className="h-1 overflow-hidden rounded bg-navy/10">
+                                                        <div className="w-3/4 h-full bg-emerald-500" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
                                         <div className="grid grid-cols-1 gap-3 md:grid-cols-[120px_1fr] md:items-start">
                                             <label className="pt-2 text-sm font-medium text-navy/80">Description</label>
                                             <textarea
-                                                value={selectedGroupInfo.description}
+                                                value={selectedAttributeInfo.description}
                                                 readOnly
                                                 rows={3}
                                                 className="w-full px-4 py-2 text-sm font-medium border rounded-md outline-none border-navy/10 bg-background text-navy"
                                             />
+                                        </div> 
+                                        <button
+                                                            type="button"
+                                                            onClick={() => selectedAttributeUser && openEditModal(selectedAttributeUser)}
+                                                            className="inline-flex items-center gap-1 rounded-md border border-navy/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-navy/70 hover:bg-navy/5"
+                                                            title="Ganti password"
+                                                        >
+                                                            <Edit3 size={12} />
+                                                            Ganti Password
+                                                        </button>
+                                    </div>
+                                    
+                                </div>
+
+                                {!selectedAttributeInfo.isUserNode && (
+                                    <div className="overflow-hidden border rounded-2xl border-navy/5">
+                                        <div className="px-4 py-3 border-b border-navy/5 md:px-5">
+                                            <h3 className="text-sm font-medium text-navy/80">User List</h3>
+                                        </div>
+
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full min-w-[720px] border-collapse text-left">
+                                                <thead>
+                                                    <tr className="text-sm font-semibold bg-background/60 text-navy/60">
+                                                        <th className="px-4 py-3 text-center border-b border-navy/5">Username</th>
+                                                        <th className="px-4 py-3 text-center border-b border-navy/5">Password</th>
+                                                        <th className="px-4 py-3 text-center border-b border-navy/5">Description</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {selectedGroupUsers.map((user) => (
+                                                        <tr key={`${user.name}-${user.group}`} className="text-sm text-navy/80">
+                                                            <td className="px-4 py-4 font-medium text-center border-b border-navy/5">{user.name}</td>
+                                                            <td className="px-4 py-4 font-medium text-center border-b border-navy/5">Strong</td>
+                                                            <td className="px-4 py-4 font-medium text-center border-b border-navy/5">{user.remark || `${user.name}'s account`}</td>
+                                                        </tr>
+                                                    ))}
+                                                    {selectedGroupUsers.length === 0 && (
+                                                        <tr>
+                                                            <td className="px-4 py-8 text-sm text-center text-navy/30" colSpan={3}>
+                                                                Tidak ada user pada group ini.
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
-                                </div>
+                                )}
 
-                                <div className="overflow-hidden border rounded-2xl border-navy/5">
-                                    <div className="px-4 py-3 border-b border-navy/5 md:px-5">
-                                        <h3 className="text-sm font-medium text-navy/80">User List</h3>
-                                    </div>
-
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full min-w-[720px] border-collapse text-left">
-                                            <thead>
-                                                <tr className="text-sm font-semibold bg-background/60 text-navy/60">
-                                                    <th className="px-4 py-3 text-center border-b border-navy/5">Username</th>
-                                                    <th className="px-4 py-3 text-center border-b border-navy/5">Password</th>
-                                                    <th className="px-4 py-3 text-center border-b border-navy/5">Description</th>
-                                                    <th className="px-4 py-3 text-right border-b border-navy/5">Operation</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {selectedGroupUsers.map((user) => (
-                                                    <tr key={`${user.name}-${user.group}`} className="text-sm text-navy/80">
-                                                        <td className="px-4 py-4 font-medium text-center border-b border-navy/5">{user.name}</td>
-                                                        <td className="px-4 py-4 font-medium text-center border-b border-navy/5">Hidden</td>
-                                                        <td className="px-4 py-4 font-medium text-center border-b border-navy/5">{user.remark || `${user.name}'s account`}</td>
-                                                        <td className="px-4 py-4 text-right border-b border-navy/5">
-                                                            <div className="inline-flex items-center gap-2">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => openEditModal(user)}
-                                                                    className="p-2 transition-all border border-transparent rounded-lg text-navy/40 hover:border-navy/10 hover:bg-navy/5 hover:text-navy"
-                                                                    title="Modify user"
-                                                                >
-                                                                    <Edit3 size={14} />
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleDeleteUser(user)}
-                                                                    className="p-2 transition-all border border-transparent rounded-lg text-danger/50 hover:border-danger/10 hover:bg-danger/5 hover:text-danger"
-                                                                    title="Delete user"
-                                                                >
-                                                                    <Trash2 size={14} />
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                                {selectedGroupUsers.length === 0 && (
-                                                    <tr>
-                                                        <td className="px-4 py-8 text-sm text-center text-navy/30" colSpan={4}>
-                                                            Tidak ada user pada group ini.
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
                             </div>
                         ) : (
-                            <div className="space-y-4">
-                                <div className="p-4 border rounded-2xl border-navy/5 bg-background/60">
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex items-center justify-center w-10 h-10 text-white rounded-2xl bg-navy">
-                                            <Shield size={18} />
-                                        </div>
-                                        <div>
-                                            <p className="text-sm font-bold text-navy">Permission</p>
-                                            <p className="text-xs text-navy/40">Pengaturan permission mengikuti profil yang dipilih di perangkat.</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="overflow-hidden border rounded-2xl border-navy/5">
-                                    <table className="w-full text-sm text-left border-collapse">
-                                        <thead>
-                                            <tr className="bg-background/60 text-navy/60">
-                                                <th className="px-4 py-3 border-b border-navy/5">Permission</th>
-                                                <th className="px-4 py-3 text-center border-b border-navy/5">Read</th>
-                                                <th className="px-4 py-3 text-center border-b border-navy/5">Add</th>
-                                                <th className="px-4 py-3 text-center border-b border-navy/5">Modify</th>
-                                                <th className="px-4 py-3 text-center border-b border-navy/5">Delete</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {['User Profile', 'Device Access', 'Configuration', 'Security Log'].map((permission) => (
-                                                <tr key={permission} className="text-navy/80">
-                                                    <td className="px-4 py-3 font-medium border-b border-navy/5">{permission}</td>
-                                                    {['read', 'add', 'modify', 'delete'].map((item) => (
-                                                        <td key={item} className="px-4 py-3 text-center border-b border-navy/5">
-                                                            <input type="checkbox" defaultChecked={item === 'read'} disabled className="w-4 h-4 rounded border-navy/20" />
-                                                        </td>
-                                                    ))}
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
+                            <PermissionManagement 
+                                userName={selectedGroup === 'onvif' ? '' : (selectedUserForPermission || selectedGroupUsers[0]?.name)}
+                            />
                         )}
                     </div>
                 </section>
@@ -342,9 +425,14 @@ const UserManagement = () => {
             {(isAddOpen || isEditOpen) && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
                     <div className="w-full max-w-2xl p-6 bg-white border shadow-2xl rounded-3xl border-navy/10 md:p-8">
-                        <h3 className="mb-6 text-sm font-black tracking-widest uppercase text-navy">
+                        <h3 className="mb-2 text-sm font-black tracking-widest uppercase text-navy">
                             {isAddOpen ? 'Add New User' : 'Modify User'}
                         </h3>
+                        <p className="mb-6 text-[11px] font-semibold text-navy/50">
+                            {isAddOpen
+                                ? 'Isi data akun baru sesuai format userManager endpoint.'
+                                : 'Perbarui profile user. Password boleh dikosongkan jika tidak ingin diubah.'}
+                        </p>
 
                         <form onSubmit={isAddOpen ? handleAddUser : handleModifyUser} className="space-y-4">
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -355,28 +443,99 @@ const UserManagement = () => {
                                     placeholder="name"
                                     className="px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
                                     required
+                                    readOnly={isEditOpen}
                                 />
-                                <input
-                                    type="password"
-                                    value={formData.password}
-                                    onChange={(event) => setFormData((prev) => ({ ...prev, password: event.target.value }))}
-                                    placeholder="password (opsional untuk modify)"
-                                    className="px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
-                                />
+
+                                {isAddOpen ? (
+                                    <input
+                                        type="password"
+                                        value={formData.password}
+                                        onChange={(event) => setFormData((prev) => ({ ...prev, password: event.target.value }))}
+                                        placeholder="password (required)"
+                                        className="px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
+                                        required
+                                    />
+                                ) : (
+                                    <input
+                                        type="password"
+                                        value={formData.oldPassword || ''}
+                                        onChange={(event) => setFormData((prev) => ({ ...prev, oldPassword: event.target.value }))}
+                                        placeholder="old password (for modifyPassword)"
+                                        className="px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
+                                    />
+                                )}
+
+                                {isEditOpen && (
+                                    <input
+                                        type="password"
+                                        value={formData.password}
+                                        onChange={(event) => setFormData((prev) => ({ ...prev, password: event.target.value }))}
+                                        placeholder="new password (for modifyPassword)"
+                                        className="px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
+                                    />
+                                )}
+
                                 <input
                                     type="text"
                                     value={formData.group}
                                     onChange={(event) => setFormData((prev) => ({ ...prev, group: event.target.value }))}
-                                    placeholder="group"
+                                    placeholder="group (contoh: admin)"
                                     className="px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
                                 />
-                                <input
-                                    type="text"
-                                    value={formData.authority}
-                                    onChange={(event) => setFormData((prev) => ({ ...prev, authority: event.target.value }))}
-                                    placeholder="authority"
-                                    className="px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
-                                />
+                                <div className="px-3 py-3 border rounded-xl border-navy/10 bg-background md:col-span-2">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <p className="text-[11px] font-black uppercase tracking-widest text-navy/60">Authority List</p>
+                                        <p className="text-[10px] font-semibold text-navy/40">Checkbox only, value tetap disimpan sebagai AuthorityList</p>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                                        {AUTHORITY_OPTIONS.map((option) => {
+                                            const selectedAuthorities = parseAuthorityValues(formData.authority);
+                                            const isChecked = selectedAuthorities.includes(option.value);
+
+                                            return (
+                                                <label key={option.value} className="flex items-center gap-2 px-3 py-2 text-xs font-semibold bg-white border rounded-lg border-navy/10 text-navy/65">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={(event) => setFormData((previous) => ({ ...previous, authority: setAuthorityValue(previous.authority, option.value, event.target.checked) }))}
+                                                        className="w-4 h-4 text-gray-400 bg-gray-100 border-gray-300 rounded-sm accent-gray-300"
+                                                    />
+                                                    <span>{option.label}</span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                                <label className="inline-flex items-center gap-2 rounded-xl border border-navy/10 bg-background px-3 py-2 text-[11px] font-bold text-navy/70">
+                                    <input
+                                        type="checkbox"
+                                        checked={Boolean(formData.sharable)}
+                                        onChange={(event) => setFormData((prev) => ({ ...prev, sharable: event.target.checked }))}
+                                        className="w-4 h-4"
+                                    />
+                                    Sharable
+                                </label>
+                                <label className="inline-flex items-center gap-2 rounded-xl border border-navy/10 bg-background px-3 py-2 text-[11px] font-bold text-navy/70">
+                                    <input
+                                        type="checkbox"
+                                        checked={Boolean(formData.reserved)}
+                                        onChange={(event) => setFormData((prev) => ({ ...prev, reserved: event.target.checked }))}
+                                        className="w-4 h-4"
+                                    />
+                                    Reserved
+                                </label>
+                                <label className="inline-flex items-center gap-2 rounded-xl border border-navy/10 bg-background px-3 py-2 text-[11px] font-bold text-navy/70">
+                                    <input
+                                        type="checkbox"
+                                        checked={Boolean(formData.needModPwd)}
+                                        onChange={(event) => setFormData((prev) => ({ ...prev, needModPwd: event.target.checked }))}
+                                        className="w-4 h-4"
+                                    />
+                                    NeedModPwd
+                                </label>
                             </div>
 
                             <textarea

@@ -67,6 +67,9 @@ function normalizeUserRecord(user, index = 0) {
     const group = pickFirstValue(user, ['GroupName', 'Group', 'group', 'UserGroup', 'AuthorityList']);
     const remark = pickFirstValue(user, ['Memo', 'memo', 'Remark', 'remark', 'Comment']);
     const authority = pickFirstValue(user, ['Authority', 'authority', 'Level', 'level', 'Type', 'type']);
+    const authorities = Array.isArray(user?.AuthorityList)
+        ? user.AuthorityList.map((entry) => String(entry || '').trim()).filter(Boolean)
+        : [];
 
     return {
         id: index + 1,
@@ -74,6 +77,7 @@ function normalizeUserRecord(user, index = 0) {
         group: group || '-',
         authority: authority || '-',
         remark,
+        authorities,
         raw: user,
     };
 }
@@ -107,6 +111,23 @@ function parseUsersFromKeyValuePayload(rawData) {
 
     Object.entries(keyValueMap).forEach(([key, value]) => {
         let matched = false;
+
+        const authorityMatch = key.match(/^(?:table\.)?(?:userInfo|users?|user)\[(\d+)\]\.AuthorityList\[(\d+)\]$/i)
+            || key.match(/^(?:table\.)?(?:userInfo|users?|user)\.([^.]+)\.AuthorityList\[(\d+)\]$/i);
+        if (authorityMatch) {
+            const userId = String(authorityMatch[1] || '').trim();
+            const index = String(authorityMatch[2] || '').trim();
+            if (userId) {
+                if (!groupedUsers[userId]) {
+                    groupedUsers[userId] = {};
+                }
+                if (!Array.isArray(groupedUsers[userId].AuthorityList)) {
+                    groupedUsers[userId].AuthorityList = [];
+                }
+                groupedUsers[userId].AuthorityList[Number(index)] = value;
+                return;
+            }
+        }
 
         for (const pattern of patterns) {
             const match = key.match(pattern);
@@ -149,6 +170,10 @@ function parseUsersFromKeyValuePayload(rawData) {
             const normalizedField = field.includes('.') ? field.split('.').pop() : field;
             normalized[normalizedField] = raw[field];
         });
+
+        if (Array.isArray(raw.AuthorityList)) {
+            normalized.AuthorityList = raw.AuthorityList.filter(Boolean);
+        }
 
         return normalized;
     });
@@ -199,19 +224,103 @@ function parseQueryStringInput(queryString) {
     return params;
 }
 
-function buildUserPayload(basePayload = {}, extraQuery = '') {
-    const payload = {};
+function normalizeAuthorityList(authorityInput) {
+    if (Array.isArray(authorityInput)) {
+        return authorityInput.map((entry) => String(entry || '').trim()).filter(Boolean);
+    }
 
-    Object.entries(basePayload).forEach(([key, value]) => {
-        const text = String(value ?? '').trim();
-        if (!text) {
-            return;
-        }
-        payload[key] = text;
-    });
+    return String(authorityInput || '')
+        .split(',')
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean);
+}
+
+function isBadRequestError(error) {
+    const status = error?.response?.status;
+    const body = String(error?.response?.data || '').toLowerCase();
+    return status === 400 || body.includes('bad request');
+}
+
+function buildAddUserParams(payload = {}, extraQuery = '') {
+    const name = String(payload?.name || '').trim();
+    const password = String(payload?.password || '').trim();
+    const group = String(payload?.group || '').trim();
+    const memo = String(payload?.remark || '').trim();
+    const sharable = payload?.sharable !== undefined ? String(Boolean(payload.sharable)) : 'true';
+    const reserved = payload?.reserved !== undefined ? String(Boolean(payload.reserved)) : 'false';
+    const needModPwd = payload?.needModPwd !== undefined ? String(Boolean(payload.needModPwd)) : 'false';
+    const authorityList = normalizeAuthorityList(payload?.authority);
+
+    const params = {
+        action: 'addUser',
+        'user.Name': name,
+        'user.Password': password,
+        'user.Sharable': sharable,
+        'user.Reserved': reserved,
+        'user.NeedModPwd': needModPwd,
+    };
+
+    if (group) {
+        params['user.Group'] = group;
+    }
+
+    if (memo) {
+        params['user.Memo'] = memo;
+    }
+
+    if (authorityList.length > 0) {
+        authorityList.forEach((entry, index) => {
+            params[`user.AuthorityList[${index}]`] = entry;
+        });
+    }
 
     return {
-        ...payload,
+        ...params,
+        ...parseQueryStringInput(extraQuery),
+    };
+}
+
+function buildModifyUserParams(payload = {}, extraQuery = '', fallbackAuthorities = []) {
+    const name = String(payload?.name || '').trim();
+    const password = String(payload?.password || '').trim();
+    const group = String(payload?.group || '').trim();
+    const memo = String(payload?.remark || '').trim();
+    const sharable = payload?.sharable !== undefined ? String(Boolean(payload.sharable)) : 'true';
+    const reserved = payload?.reserved !== undefined ? String(Boolean(payload.reserved)) : 'false';
+    const authorities = normalizeAuthorityList(payload?.authority);
+    const mergedAuthorities = authorities.length > 0 ? authorities : normalizeAuthorityList(fallbackAuthorities);
+
+    const params = {
+        action: 'modifyUser',
+        name,
+        'user.Sharable': sharable,
+        'user.Reserved': reserved,
+    };
+
+    if (name) {
+        params['user.Name'] = name;
+    }
+
+    if (password) {
+        params['user.Password'] = password;
+    }
+
+    if (group) {
+        params['user.Group'] = group;
+    }
+
+    if (memo) {
+        params['user.Memo'] = memo;
+    }
+
+    if (mergedAuthorities.length > 0) {
+        mergedAuthorities.forEach((entry, index) => {
+            params[`user.AuthorityList[${index}]`] = entry;
+        });
+    }
+
+    return {
+        ...params,
         ...parseQueryStringInput(extraQuery),
     };
 }
@@ -245,24 +354,32 @@ export const userService = {
 
     addUser: async ({ payload = {}, extraQuery = '' }) => {
         const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
-            params: {
-                action: 'addUser',
-                ...buildUserPayload(payload, extraQuery),
-            },
+            params: buildAddUserParams(payload, extraQuery),
         });
 
         return response?.data;
     },
 
     modifyUser: async ({ payload = {}, extraQuery = '' }) => {
-        const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
-            params: {
-                action: 'modifyUser',
-                ...buildUserPayload(payload, extraQuery),
-            },
-        });
+        try {
+            const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
+                params: buildModifyUserParams(payload, extraQuery),
+            });
 
-        return response?.data;
+            return response?.data;
+        } catch (error) {
+            if (!isBadRequestError(error)) {
+                throw error;
+            }
+
+            const currentUser = await userService.getUserByName(payload?.name);
+            const fallbackAuthorities = currentUser?.user?.authorities || currentUser?.user?.raw?.AuthorityList || [];
+            const retryResponse = await ApiClient.get('/cgi-bin/userManager.cgi', {
+                params: buildModifyUserParams(payload, extraQuery, fallbackAuthorities),
+            });
+
+            return retryResponse?.data;
+        }
     },
 
     deleteUser: async ({ name, extraQuery = '' }) => {
@@ -270,6 +387,50 @@ export const userService = {
             params: {
                 action: 'deleteUser',
                 name,
+                ...parseQueryStringInput(extraQuery),
+            },
+        });
+
+        return response?.data;
+    },
+
+    getOnvifDevice: async () => {
+        const response = await ApiClient.get('/cgi-bin/configManager.cgi', {
+            params: {
+                action: 'getConfig',
+                name: 'OnvifDevice',
+            },
+        });
+
+        return {
+            data: parseKeyValuePayload(response?.data),
+            raw: response?.data,
+        };
+    },
+
+    modifyPassword: async ({ name, pwd, pwdOld, extraQuery = '' }) => {
+        const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
+            params: {
+                action: 'modifyPassword',
+                name,
+                pwd,
+                pwdOld,
+                ...parseQueryStringInput(extraQuery),
+            },
+        });
+
+        return response?.data;
+    },
+
+    modifyPasswordByManager: async ({ userName, pwd, managerName, managerPwd, accountType = 0, extraQuery = '' }) => {
+        const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
+            params: {
+                action: 'modifyPasswordByManager',
+                userName,
+                pwd,
+                managerName,
+                managerPwd,
+                accountType,
                 ...parseQueryStringInput(extraQuery),
             },
         });

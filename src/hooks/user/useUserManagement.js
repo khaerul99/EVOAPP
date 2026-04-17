@@ -1,12 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { userService } from '../../services/user/user.service';
 
+function hasOnvifAccess(user) {
+    const authorities = Array.isArray(user?.authorities)
+        ? user.authorities
+        : Array.isArray(user?.raw?.AuthorityList)
+            ? user.raw.AuthorityList
+            : [];
+
+    return authorities.some((authority) => {
+        const normalized = String(authority || '').toLowerCase();
+        return normalized === 'authrmtdevice' || normalized.includes('onvif');
+    });
+}
+
 const INITIAL_FORM_STATE = {
     name: '',
+    oldPassword: '',
     password: '',
     group: '',
     authority: '',
     remark: '',
+    sharable: true,
+    reserved: false,
+    needModPwd: false,
     extraQuery: '',
 };
 
@@ -21,10 +38,16 @@ function normalizeSearch(value) {
 function createEditFormState(user) {
     return {
         name: user?.name === '-' ? '' : String(user?.name || ''),
+        oldPassword: '',
         password: '',
         group: user?.group === '-' ? '' : String(user?.group || ''),
-        authority: user?.authority === '-' ? '' : String(user?.authority || ''),
+        authority: Array.isArray(user?.authorities)
+            ? user.authorities.join(',')
+            : (user?.authority === '-' ? '' : String(user?.authority || '')),
         remark: String(user?.remark || ''),
+        sharable: user?.raw?.Sharable !== undefined ? String(user.raw.Sharable).toLowerCase() === 'true' : true,
+        reserved: user?.raw?.Reserved !== undefined ? String(user.raw.Reserved).toLowerCase() === 'true' : false,
+        needModPwd: user?.raw?.NeedModPwd !== undefined ? String(user.raw.NeedModPwd).toLowerCase() === 'true' : false,
         extraQuery: '',
     };
 }
@@ -36,6 +59,9 @@ function buildPayloadFromForm(formData) {
         group: formData.group,
         authority: formData.authority,
         remark: formData.remark,
+        sharable: formData.sharable,
+        reserved: formData.reserved,
+        needModPwd: formData.needModPwd,
     };
 }
 
@@ -54,18 +80,41 @@ export function useUserManagement() {
     const [submitting, setSubmitting] = useState(false);
     const [activeTab, setActiveTab] = useState('attribute');
     const [selectedGroup, setSelectedGroup] = useState('all');
+    const [selectedUserForAttribute, setSelectedUserForAttribute] = useState(null);
     const [isTreeExpanded, setIsTreeExpanded] = useState(true);
     const [expandedGroups, setExpandedGroups] = useState({});
+    const [selectedUserForPermission, setSelectedUserForPermission] = useState(null);
+    const [onvifAvailable, setOnvifAvailable] = useState(false);
+    const [onvifUsers, setOnvifUsers] = useState([]);
 
     const loadAllUsers = useCallback(async () => {
         try {
             setLoading(true);
             setError('');
-            const result = await userService.getAllUsers();
-            setUsers(Array.isArray(result?.users) ? result.users : []);
+
+            const [userResult, onvifDeviceResult] = await Promise.allSettled([
+                userService.getAllUsers(),
+                userService.getOnvifDevice(),
+            ]);
+
+            if (userResult.status === 'fulfilled') {
+                const result = userResult.value;
+                setUsers(Array.isArray(result?.users) ? result.users : []);
+            } else {
+                throw userResult.reason;
+            }
+
+            const localUsers = Array.isArray(userResult.value?.users) ? userResult.value.users : [];
+            const onvifUsersList = localUsers.filter(hasOnvifAccess);
+            const hasOnvif = onvifUsersList.length > 0 || (onvifDeviceResult.status === 'fulfilled' && Object.keys(onvifDeviceResult.value?.data || {}).length > 0);
+
+            setOnvifAvailable(hasOnvif);
+            setOnvifUsers(onvifUsersList);
             setStatusMessage('');
         } catch {
             setUsers([]);
+            setOnvifAvailable(false);
+            setOnvifUsers([]);
             setError('Gagal mengambil daftar user dari perangkat.');
         } finally {
             setLoading(false);
@@ -74,7 +123,7 @@ export function useUserManagement() {
 
     useEffect(() => {
         loadAllUsers();
-    }, [loadAllUsers]);
+    }, []);
 
     const filteredUsers = useMemo(() => {
         const normalizedSearch = normalizeSearch(searchTerm);
@@ -128,14 +177,26 @@ export function useUserManagement() {
     }, [userGroups]);
 
     const selectedGroupUsers = useMemo(() => {
+        if (normalizeSearch(selectedGroup) === 'onvif') {
+            return onvifUsers;
+        }
+
         if (selectedGroup === 'all') {
             return users;
         }
 
         return users.filter((user) => normalizeSearch(user.group) === normalizeSearch(selectedGroup));
-    }, [selectedGroup, users]);
+    }, [onvifUsers, selectedGroup, users]);
 
     const selectedGroupInfo = useMemo(() => {
+        if (normalizeSearch(selectedGroup) === 'onvif') {
+            return {
+                name: 'Onvif',
+                parent: 'EvoSecure',
+                description: `${onvifUsers.length} user di grup ini`,
+            };
+        }
+
         if (selectedGroup === 'all') {
             return {
                 name: 'EvoSecure',
@@ -150,7 +211,40 @@ export function useUserManagement() {
             parent: 'EvoSecure',
             description: `${matchedGroup?.users?.length || selectedGroupUsers.length} user di grup ini`,
         };
-    }, [selectedGroup, selectedGroupUsers.length, userGroups, users.length]);
+    }, [onvifUsers.length, selectedGroup, selectedGroupUsers.length, userGroups, users.length]);
+
+    const selectedAttributeUser = useMemo(() => {
+        const normalizedTarget = normalizeSearch(selectedUserForAttribute);
+        if (!normalizedTarget) {
+            return null;
+        }
+
+        if (normalizeSearch(selectedGroup) === 'onvif') {
+            return onvifUsers.find((user) => normalizeSearch(user.name) === normalizedTarget) || null;
+        }
+
+        return users.find((user) => normalizeSearch(user.name) === normalizedTarget) || null;
+    }, [onvifUsers, selectedGroup, selectedUserForAttribute, users]);
+
+    const selectedAttributeInfo = useMemo(() => {
+        if (!selectedAttributeUser) {
+            return {
+                name: selectedGroupInfo.name,
+                parent: selectedGroupInfo.parent,
+                description: selectedGroupInfo.description,
+                password: '',
+                isUserNode: false,
+            };
+        }
+
+        return {
+            name: selectedAttributeUser.name,
+            parent: selectedAttributeUser.group || selectedGroupInfo.name,
+            description: selectedAttributeUser.remark || `${selectedAttributeUser.name}'s account`,
+            password: '************',
+            isUserNode: true,
+        };
+    }, [selectedAttributeUser, selectedGroupInfo]);
 
     const resetForm = useCallback(() => {
         setFormData(createInitialFormState());
@@ -197,6 +291,11 @@ export function useUserManagement() {
             return;
         }
 
+        if (!formData.password.trim()) {
+            setStatusMessage('Password wajib diisi saat menambah user.');
+            return;
+        }
+
         try {
             setSubmitting(true);
             setStatusMessage('');
@@ -221,16 +320,39 @@ export function useUserManagement() {
             return;
         }
 
+        const hasNewPassword = Boolean(formData.password.trim());
+        const hasOldPassword = Boolean(formData.oldPassword.trim());
+        const shouldModifyPassword = hasNewPassword || hasOldPassword;
+
+        if (shouldModifyPassword && (!hasNewPassword || !hasOldPassword)) {
+            setStatusMessage('Untuk ubah password, old password dan new password wajib diisi.');
+            return;
+        }
+
         try {
             setSubmitting(true);
             setStatusMessage('');
+
             await userService.modifyUser({
-                payload: buildPayloadFromForm(formData),
+                payload: buildPayloadFromForm({
+                    ...formData,
+                    password: '',
+                }),
                 extraQuery: formData.extraQuery,
             });
+
+            if (shouldModifyPassword) {
+                await userService.modifyPassword({
+                    name: formData.name,
+                    pwd: formData.password,
+                    pwdOld: formData.oldPassword,
+                    extraQuery: formData.extraQuery,
+                });
+            }
+
             closeEditModal();
             await loadAllUsers();
-            setStatusMessage('User berhasil diperbarui.');
+            setStatusMessage(shouldModifyPassword ? 'User dan password berhasil diperbarui.' : 'User berhasil diperbarui.');
         } catch {
             setStatusMessage('Gagal memperbarui user. Pastikan query parameter sesuai kebutuhan perangkat.');
         } finally {
@@ -289,6 +411,10 @@ export function useUserManagement() {
         userGroups,
         selectedGroupUsers,
         selectedGroupInfo,
+        selectedAttributeInfo,
+        selectedAttributeUser,
+        selectedUserForAttribute,
+        setSelectedUserForAttribute,
         filteredUsers,
         loadAllUsers,
         openAddModal,
@@ -298,6 +424,9 @@ export function useUserManagement() {
         handleAddUser,
         handleModifyUser,
         handleDeleteUser,
-       
+        selectedUserForPermission,
+        setSelectedUserForPermission,
+        onvifAvailable,
+        onvifUsers,
     };
 }
