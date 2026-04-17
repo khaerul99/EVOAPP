@@ -1,170 +1,38 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
     Plus, Layout, Grid, List, MoreHorizontal,
     Edit3, Trash2, Search, Filter, X, ChevronLeft, ChevronRight, AlertTriangle
 } from 'lucide-react';
-import { cameraService } from '../../../services/camera/camera.service';
-
-const DIGEST_RETRY_DELAY_MS = 2500;
+import { useCameraManagement } from '../../../hooks/camera/useCameraManagement';
 
 const CameraManagement = () => {
-    const [cameras, setCameras] = useState([]);
-
-    const [currentPage, setCurrentPage] = useState(1);
-    
-    const [isAddPopupOpen, setIsAddPopupOpen] = useState(false);
-    const [editCamera, setEditCamera] = useState(null);
-    const [deleteCameraId, setDeleteCameraId] = useState(null);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [viewMode, setViewMode] = useState('layout');
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-    const [isDigestRetrying, setIsDigestRetrying] = useState(false);
-
-    useEffect(() => {
-        let cancelled = false;
-        let retryTimer = null;
-
-        const fetchChannels = async () => {
-            try {
-                const channelData = await cameraService.getCameraChannels();
-                if (!cancelled) {
-                    setCameras(Array.isArray(channelData) ? channelData : []);
-                    setError('');
-                    setIsDigestRetrying(false);
-                    setLoading(false);
-                }
-            } catch (requestError) {
-                if (!cancelled) {
-                    const statusCode = requestError?.response?.status;
-                    const isDigestInProgress = statusCode === 401 || statusCode === 403;
-
-                    if (isDigestInProgress) {
-                        setLoading(true);
-                        setIsDigestRetrying(true);
-                        setError('Sedang menunggu autentikasi digest. Data kamera akan dimuat otomatis.');
-                        retryTimer = setTimeout(() => {
-                            fetchChannels();
-                        }, DIGEST_RETRY_DELAY_MS);
-                        return;
-                    }
-
-                    setCameras([]);
-                    setIsDigestRetrying(false);
-                    setLoading(false);
-                    setError('Gagal mengambil data kamera dari perangkat.');
-                }
-            }
-        };
-
-        setLoading(true);
-        fetchChannels();
-        return () => {
-            cancelled = true;
-            if (retryTimer) {
-                clearTimeout(retryTimer);
-            }
-        };
-    }, []);
-
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [searchTerm]);
-    
-    const [newCamera, setNewCamera] = useState({
-        type: 'oneByOne',
-        channelMode: 'auto',
-        channelIndex: '0',
-        manufacturer: 'Private',
-        ipAddress: '192.168.1.108',
-        tcpPort: '37777',
-        username: 'admin',
-        password: 'admin123',
-        connectionType: 'Self-adaptive',
-        cacheMethod: 'Self-adaptive',
-        totalChannels: '1',
-        channelRangeStart: '1',
-        channelRangeEnd: '1',
-    });
-
-    const itemsPerPage = 5;
-    const activeCameras = cameras.filter((camera) => camera.status === 'online' || 0 );
-    const filteredCameras = activeCameras.filter(c => 
-        c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (c.deviceName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.ip.includes(searchTerm) || 
-        c.manufacture.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-
-    const totalPages = Math.ceil(filteredCameras.length / itemsPerPage) || 1;
-    const safeCurrentPage = Math.min(currentPage, totalPages);
-    const paginatedCameras = filteredCameras.slice((safeCurrentPage - 1) * itemsPerPage, safeCurrentPage * itemsPerPage);
-
-    const getNextAvailableChannelIndex = () => {
-        const usedIndexes = new Set(
-            cameras
-                .map((camera) => Number(camera.id))
-                .filter((value) => Number.isFinite(value) && value > 0)
-                .map((value) => value - 1),
-        );
-
-        let candidate = 0;
-        while (usedIndexes.has(candidate)) {
-            candidate += 1;
-        }
-
-        return candidate;
-    };
-
-    const handleAddSubmit = (e) => {
-        e.preventDefault();
-        const resolvedChannelIndex = newCamera.channelMode === 'manual'
-            ? Math.max(0, Number(newCamera.channelIndex) || 0)
-            : getNextAvailableChannelIndex();
-
-        cameraService.addRemoteDevice({
-            channelIndex: resolvedChannelIndex,
-            ipAddress: newCamera.ipAddress,
-            port: newCamera.tcpPort,
-            username: newCamera.username,
-            password: newCamera.password,
-            protocol: newCamera.manufacturer,
-        }).then(async () => {
-            setIsAddPopupOpen(false);
-            setNewCamera({
-                type: 'oneByOne',
-                channelMode: 'auto',
-                channelIndex: '0',
-                manufacturer: 'Private',
-                ipAddress: '192.168.1.108',
-                tcpPort: '37777',
-                username: 'admin',
-                password: 'admin123',
-                connectionType: 'Self-adaptive',
-                cacheMethod: 'Self-adaptive',
-                totalChannels: '1',
-                channelRangeStart: '1',
-                channelRangeEnd: '1',
-            });
-            setCurrentPage(1);
-            await Promise.all([cameraService.getCameraChannels().then((channelData) => {
-                setCameras(Array.isArray(channelData) ? channelData : []);
-            })]);
-        }).catch(() => {
-            setError('Gagal menambahkan device ke perangkat. Cek kembali endpoint dan kredensial kamera.');
-        });
-    };
-
-    const handleEditSubmit = (e) => {
-        e.preventDefault();
-        setCameras(cameras.map(c => c.id === editCamera.id ? editCamera : c));
-        setEditCamera(null);
-    };
-
-    const handleConfirmDelete = () => {
-        setCameras(cameras.filter(c => c.id !== deleteCameraId));
-        setDeleteCameraId(null);
-    };
+    const {
+        currentPage,
+        setCurrentPage,
+        isAddPopupOpen,
+        openAddPopup,
+        closeAddPopup,
+        editCamera,
+        setEditCamera,
+        deleteCameraId,
+        setDeleteCameraId,
+        searchTerm,
+        setSearchTerm,
+        viewMode,
+        setViewMode,
+        loading,
+        error,
+        isDigestRetrying,
+        newCamera,
+        setNewCamera,
+        paginatedCameras,
+        filteredCameras,
+        totalPages,
+        safeCurrentPage,
+        handleAddSubmit,
+        handleEditSubmit,
+        handleConfirmDelete,
+    } = useCameraManagement();
 
     return (
         <div className="relative space-y-6 duration-500 md:space-y-8 animate-in fade-in">
@@ -202,7 +70,7 @@ const CameraManagement = () => {
 
             <div className="overflow-hidden bg-white border shadow-sm rounded-3xl border-navy/5">
                 <div className="flex flex-col items-start justify-between p-4 space-y-4 border-b md:p-8 border-navy/5 md:flex-row md:items-center md:space-y-0">
-                    <button onClick={() => setIsAddPopupOpen(true)} className="flex items-center justify-center w-full px-6 py-3 space-x-2 transition-all shadow-lg btn-navy md:w-auto md:py-2 rounded-xl shadow-navy/10 hover:opacity-90 active:scale-95">
+                    <button onClick={openAddPopup} className="flex items-center justify-center w-full px-6 py-3 space-x-2 transition-all shadow-lg btn-navy md:w-auto md:py-2 rounded-xl shadow-navy/10 hover:opacity-90 active:scale-95">
                         <Plus size={18} />
                         <span className="text-xs font-black tracking-widest uppercase">Add Device</span>
                     </button>
@@ -367,14 +235,14 @@ const CameraManagement = () => {
             {/* Add Device Popup Modal */}
             {isAddPopupOpen && (
                 <>
-                    <div className="fixed inset-0 bg-navy/20 backdrop-blur-sm z-[100]" onClick={() => setIsAddPopupOpen(false)} />
+                    <div className="fixed inset-0 bg-navy/20 backdrop-blur-sm z-[100]" onClick={closeAddPopup} />
                     <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white w-full max-w-3xl rounded-[32px] shadow-2xl border border-navy/5 z-[101] overflow-hidden animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
                         <div className="flex items-center justify-between p-6 border-b border-navy/5 bg-background/50">
                             <div>
                                 <h3 className="text-lg font-black tracking-tight uppercase text-navy">Add Device</h3>
                                 <p className="text-[10px] font-bold text-navy/40 uppercase tracking-widest mt-1">/cgi-bin/configManager.cgi?action=setConfig</p>
                             </div>
-                            <button onClick={() => setIsAddPopupOpen(false)} className="p-2 transition-colors hover:bg-white rounded-xl text-navy/40 hover:text-navy">
+                            <button onClick={closeAddPopup} className="p-2 transition-colors hover:bg-white rounded-xl text-navy/40 hover:text-navy">
                                 <X size={20} />
                             </button>
                         </div>
