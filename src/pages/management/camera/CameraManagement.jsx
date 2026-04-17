@@ -1,120 +1,38 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
     Plus, Layout, Grid, List, MoreHorizontal,
     Edit3, Trash2, Search, Filter, X, ChevronLeft, ChevronRight, AlertTriangle
 } from 'lucide-react';
-import { cameraService } from '../../../services/camera/camera.service';
-
-const DIGEST_RETRY_DELAY_MS = 2500;
+import { useCameraManagement } from '../../../hooks/camera/useCameraManagement';
 
 const CameraManagement = () => {
-    const [cameras, setCameras] = useState([]);
-
-    const [currentPage, setCurrentPage] = useState(1);
-    
-    const [isAddPopupOpen, setIsAddPopupOpen] = useState(false);
-    const [editCamera, setEditCamera] = useState(null);
-    const [deleteCameraId, setDeleteCameraId] = useState(null);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [viewMode, setViewMode] = useState('layout');
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-    const [isDigestRetrying, setIsDigestRetrying] = useState(false);
-
-    useEffect(() => {
-        let cancelled = false;
-        let retryTimer = null;
-
-        const fetchChannels = async () => {
-            try {
-                const channelData = await cameraService.getCameraChannels();
-                if (!cancelled) {
-                    setCameras(Array.isArray(channelData) ? channelData : []);
-                    setError('');
-                    setIsDigestRetrying(false);
-                    setLoading(false);
-                }
-            } catch (requestError) {
-                if (!cancelled) {
-                    const statusCode = requestError?.response?.status;
-                    const isDigestInProgress = statusCode === 401 || statusCode === 403;
-
-                    if (isDigestInProgress) {
-                        setLoading(true);
-                        setIsDigestRetrying(true);
-                        setError('Sedang menunggu autentikasi digest. Data kamera akan dimuat otomatis.');
-                        retryTimer = setTimeout(() => {
-                            fetchChannels();
-                        }, DIGEST_RETRY_DELAY_MS);
-                        return;
-                    }
-
-                    setCameras([]);
-                    setIsDigestRetrying(false);
-                    setLoading(false);
-                    setError('Gagal mengambil data kamera dari perangkat.');
-                }
-            }
-        };
-
-        setLoading(true);
-        fetchChannels();
-        return () => {
-            cancelled = true;
-            if (retryTimer) {
-                clearTimeout(retryTimer);
-            }
-        };
-    }, []);
-
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [searchTerm]);
-    
-    const [newCamera, setNewCamera] = useState({
-        name: '',
-        ip: '',
-        status: 'online',
-        record: true,
-        manufacture: 'Onvif'
-    });
-
-    const itemsPerPage = 5;
-    const activeCameras = cameras.filter((camera) => camera.status === 'online' || 0 );
-    const filteredCameras = activeCameras.filter(c => 
-        c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (c.deviceName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.ip.includes(searchTerm) || 
-        c.manufacture.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-
-    const totalPages = Math.ceil(filteredCameras.length / itemsPerPage) || 1;
-    const safeCurrentPage = Math.min(currentPage, totalPages);
-    const paginatedCameras = filteredCameras.slice((safeCurrentPage - 1) * itemsPerPage, safeCurrentPage * itemsPerPage);
-
-    const handleAddSubmit = (e) => {
-        e.preventDefault();
-        const id = cameras.length > 0 ? Math.max(...cameras.map(c => c.id)) + 1 : 1;
-        const addedCamera = { id, ...newCamera };
-        setCameras([...cameras, addedCamera]);
-        setIsAddPopupOpen(false);
-        setNewCamera({ name: '', ip: '', status: 'online', record: true, manufacture: 'Onvif' });
-        
-        const updatedTotalLength = cameras.length + 1;
-        const newTotalPages = Math.ceil(updatedTotalLength / itemsPerPage);
-        setCurrentPage(newTotalPages);
-    };
-
-    const handleEditSubmit = (e) => {
-        e.preventDefault();
-        setCameras(cameras.map(c => c.id === editCamera.id ? editCamera : c));
-        setEditCamera(null);
-    };
-
-    const handleConfirmDelete = () => {
-        setCameras(cameras.filter(c => c.id !== deleteCameraId));
-        setDeleteCameraId(null);
-    };
+    const {
+        currentPage,
+        setCurrentPage,
+        isAddPopupOpen,
+        openAddPopup,
+        closeAddPopup,
+        editCamera,
+        setEditCamera,
+        deleteCameraId,
+        setDeleteCameraId,
+        searchTerm,
+        setSearchTerm,
+        viewMode,
+        setViewMode,
+        loading,
+        error,
+        isDigestRetrying,
+        newCamera,
+        setNewCamera,
+        paginatedCameras,
+        filteredCameras,
+        totalPages,
+        safeCurrentPage,
+        handleAddSubmit,
+        handleEditSubmit,
+        handleConfirmDelete,
+    } = useCameraManagement();
 
     return (
         <div className="relative space-y-6 duration-500 md:space-y-8 animate-in fade-in">
@@ -152,7 +70,7 @@ const CameraManagement = () => {
 
             <div className="overflow-hidden bg-white border shadow-sm rounded-3xl border-navy/5">
                 <div className="flex flex-col items-start justify-between p-4 space-y-4 border-b md:p-8 border-navy/5 md:flex-row md:items-center md:space-y-0">
-                    <button onClick={() => setIsAddPopupOpen(true)} className="flex items-center justify-center w-full px-6 py-3 space-x-2 transition-all shadow-lg btn-navy md:w-auto md:py-2 rounded-xl shadow-navy/10 hover:opacity-90 active:scale-95">
+                    <button onClick={openAddPopup} className="flex items-center justify-center w-full px-6 py-3 space-x-2 transition-all shadow-lg btn-navy md:w-auto md:py-2 rounded-xl shadow-navy/10 hover:opacity-90 active:scale-95">
                         <Plus size={18} />
                         <span className="text-xs font-black tracking-widest uppercase">Add Device</span>
                     </button>
@@ -317,74 +235,177 @@ const CameraManagement = () => {
             {/* Add Device Popup Modal */}
             {isAddPopupOpen && (
                 <>
-                    <div className="fixed inset-0 bg-navy/20 backdrop-blur-sm z-[100]" onClick={() => setIsAddPopupOpen(false)} />
-                    <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white w-full max-w-md rounded-[32px] shadow-2xl border border-navy/5 z-[101] overflow-hidden animate-in zoom-in-95 duration-300">
+                    <div className="fixed inset-0 bg-navy/20 backdrop-blur-sm z-[100]" onClick={closeAddPopup} />
+                    <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white w-full max-w-3xl rounded-[32px] shadow-2xl border border-navy/5 z-[101] overflow-hidden animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
                         <div className="flex items-center justify-between p-6 border-b border-navy/5 bg-background/50">
                             <div>
-                                <h3 className="text-lg font-black tracking-tight uppercase text-navy">Register New Device</h3>
-                                <p className="text-[10px] font-bold text-navy/40 uppercase tracking-widest mt-1">System Enrollment Protocol</p>
+                                <h3 className="text-lg font-black tracking-tight uppercase text-navy">Add Device</h3>
+                                <p className="text-[10px] font-bold text-navy/40 uppercase tracking-widest mt-1">/cgi-bin/configManager.cgi?action=setConfig</p>
                             </div>
-                            <button onClick={() => setIsAddPopupOpen(false)} className="p-2 transition-colors hover:bg-white rounded-xl text-navy/40 hover:text-navy">
+                            <button onClick={closeAddPopup} className="p-2 transition-colors hover:bg-white rounded-xl text-navy/40 hover:text-navy">
                                 <X size={20} />
                             </button>
                         </div>
                         <div className="p-6">
                             <form onSubmit={handleAddSubmit} className="space-y-4">
-                                <div>
-                                    <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Device Name</label>
-                                    <input 
-                                        type="text" required
-                                        value={newCamera.name} onChange={e => setNewCamera({...newCamera, name: e.target.value})}
-                                        className="w-full px-4 py-3 text-xs font-bold transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
-                                        placeholder="e.g. Lobby Entrance 2"
-                                    />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                     <div>
-                                        <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">IP Address</label>
-                                        <input 
-                                            type="text" required
-                                            value={newCamera.ip} onChange={e => setNewCamera({...newCamera, ip: e.target.value})}
-                                            className="w-full px-4 py-3 font-mono text-xs font-bold tracking-tight transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
-                                            placeholder="192.168.x.x"
-                                        />
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Type</label>
+                                        <div className="flex flex-wrap gap-4 px-4 py-3 border rounded-xl border-navy/5 bg-background">
+                                            <label className="flex items-center gap-2 text-xs font-bold text-navy/70">
+                                                <input
+                                                    type="radio"
+                                                    name="deviceType"
+                                                    value="oneByOne"
+                                                    checked={newCamera.type === 'oneByOne'}
+                                                    onChange={e => setNewCamera({...newCamera, type: e.target.value})}
+                                                />
+                                                Add One by One
+                                            </label>
+                                            <label className="flex items-center gap-2 text-xs font-bold text-navy/70">
+                                                <input
+                                                    type="radio"
+                                                    name="deviceType"
+                                                    value="batchAdd"
+                                                    checked={newCamera.type === 'batchAdd'}
+                                                    onChange={e => setNewCamera({...newCamera, type: e.target.value})}
+                                                />
+                                                Batch Add
+                                            </label>
+                                        </div>
                                     </div>
                                     <div>
-                                        <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Manufacture</label>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Channel No.</label>
+                                        <div className="flex gap-3">
+                                            <select
+                                                value={newCamera.channelMode}
+                                                onChange={e => setNewCamera({...newCamera, channelMode: e.target.value})}
+                                                className="w-full px-4 py-3 text-xs font-bold transition-all border outline-none appearance-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
+                                            >
+                                                <option value="auto">Auto Allocation</option>
+                                                <option value="manual">Manual</option>
+                                            </select>
+                                            {newCamera.channelMode === 'manual' && (
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={newCamera.channelIndex}
+                                                    onChange={e => setNewCamera({...newCamera, channelIndex: e.target.value})}
+                                                    className="px-4 py-3 font-mono text-xs font-bold tracking-tight transition-all border outline-none w-28 bg-background border-navy/5 rounded-xl focus:border-navy/20"
+                                                />
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Manufacturer</label>
                                         <select 
-                                            value={newCamera.manufacture} onChange={e => setNewCamera({...newCamera, manufacture: e.target.value})}
+                                            value={newCamera.manufacturer} onChange={e => setNewCamera({...newCamera, manufacturer: e.target.value})}
                                             className="w-full px-4 py-3 text-xs font-bold transition-all border outline-none appearance-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
                                         >
+                                            <option value="Private">Private</option>
                                             <option value="Onvif">Onvif Generic</option>
                                             <option value="Dahua">Dahua</option>
                                             <option value="Hikvision">Hikvision</option>
                                             <option value="Axis">Axis</option>
                                         </select>
                                     </div>
-                                </div>
-                                <div className="flex items-center justify-between pt-4 pb-2">
-                                    <label className="flex items-center space-x-3 cursor-pointer group">
+
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">IP Address</label>
                                         <input 
-                                            type="checkbox" 
-                                            checked={newCamera.status === 'online'} 
-                                            onChange={e => setNewCamera({...newCamera, status: e.target.checked ? 'online' : 'offline'})}
-                                            className="w-4 h-4 transition-all rounded text-success bg-background border-navy/10 focus:ring-success/20"
+                                            type="text" required
+                                            value={newCamera.ipAddress} onChange={e => setNewCamera({...newCamera, ipAddress: e.target.value})}
+                                            className="w-full px-4 py-3 font-mono text-xs font-bold tracking-tight transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
+                                            placeholder="192.168.1.108"
                                         />
-                                        <span className="text-[10px] font-black uppercase tracking-widest text-navy/60 group-hover:text-navy transition-colors">Start Online</span>
-                                    </label>
-                                    <label className="flex items-center space-x-3 cursor-pointer group">
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">TCP Port</label>
                                         <input 
-                                            type="checkbox" 
-                                            checked={newCamera.record} 
-                                            onChange={e => setNewCamera({...newCamera, record: e.target.checked})}
-                                            className="w-4 h-4 transition-all rounded text-navy bg-background border-navy/10 focus:ring-navy/20"
+                                            type="text" required
+                                            value={newCamera.tcpPort} onChange={e => setNewCamera({...newCamera, tcpPort: e.target.value})}
+                                            className="w-full px-4 py-3 font-mono text-xs font-bold tracking-tight transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
                                         />
-                                        <span className="text-[10px] font-black uppercase tracking-widest text-navy/60 group-hover:text-navy transition-colors">Enable Recording</span>
-                                    </label>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Username</label>
+                                        <input 
+                                            type="text" required
+                                            value={newCamera.username} onChange={e => setNewCamera({...newCamera, username: e.target.value})}
+                                            className="w-full px-4 py-3 text-xs font-bold transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Password</label>
+                                        <input 
+                                            type="password" required
+                                            value={newCamera.password} onChange={e => setNewCamera({...newCamera, password: e.target.value})}
+                                            className="w-full px-4 py-3 text-xs font-bold transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Connection Type</label>
+                                        <input
+                                            type="text"
+                                            value={newCamera.connectionType}
+                                            onChange={e => setNewCamera({...newCamera, connectionType: e.target.value})}
+                                            className="w-full px-4 py-3 text-xs font-bold transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Cache Method</label>
+                                        <input
+                                            type="text"
+                                            value={newCamera.cacheMethod}
+                                            onChange={e => setNewCamera({...newCamera, cacheMethod: e.target.value})}
+                                            className="w-full px-4 py-3 text-xs font-bold transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Total Channels</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            value={newCamera.totalChannels}
+                                            onChange={e => setNewCamera({...newCamera, totalChannels: e.target.value})}
+                                            className="w-full px-4 py-3 font-mono text-xs font-bold tracking-tight transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
+                                        />
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3 md:col-span-2">
+                                        <div>
+                                            <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Channel Start</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={newCamera.channelRangeStart}
+                                                onChange={e => setNewCamera({...newCamera, channelRangeStart: e.target.value})}
+                                                className="w-full px-4 py-3 font-mono text-xs font-bold tracking-tight transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Channel End</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={newCamera.channelRangeEnd}
+                                                onChange={e => setNewCamera({...newCamera, channelRangeEnd: e.target.value})}
+                                                className="w-full px-4 py-3 font-mono text-xs font-bold tracking-tight transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
+
                                 <div className="pt-4 mt-4 border-t border-navy/5">
                                     <button type="submit" className="w-full py-4 text-xs font-black tracking-widest text-white uppercase transition-all bg-navy rounded-xl hover:bg-navy/90 hover:shadow-xl hover:shadow-navy/10 active:scale-95">
-                                        Enroll Device to Network
+                                        Add Device
                                     </button>
                                 </div>
                             </form>
