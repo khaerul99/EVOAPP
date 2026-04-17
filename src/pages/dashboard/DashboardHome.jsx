@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import {
     Users, ScanFace, Brain, Cctv, Activity, WifiOff,
-    ChevronRight, Shield, PlayCircle, Square
+    ChevronRight, Shield, Maximize2, Minimize2
 } from 'lucide-react';
 import { useDashboard } from '../../hooks/dashboard/useDashboard';
 import { playbackService } from '../../services/playback/playback.service';
@@ -18,6 +18,7 @@ const DashboardHome = () => {
         stats,
         isLoading,
         error,
+        handleToggleFullscreen,
     } = useDashboard();
 
     const hasActiveCamera = Boolean(activeCamera);
@@ -39,13 +40,19 @@ const DashboardHome = () => {
     const activePlayerUrl = activeStreamSources?.livePlayerUrl || '';
     const activeHlsUrl = activeStreamSources?.hlsUrl || '';
     const showPlayableStream = hasActiveCamera && activeCamera.status === 'online' && Boolean(activePlayerUrl || activeHlsUrl);
-    const [isPlaying, setIsPlaying] = useState(false);
+    const cameraStreamSources = useMemo(() => {
+        return cameras.reduce((accumulator, camera) => {
+            const channel = Number(camera?.id);
+            if (!Number.isFinite(channel) || channel < 1 || camera?.status !== 'online') {
+                return accumulator;
+            }
+
+            accumulator[camera.id] = playbackService.buildLiveStreamSources({ channel, subtype: 0 });
+            return accumulator;
+        }, {});
+    }, [cameras]);
 
     const formatCount = (value) => new Intl.NumberFormat('id-ID').format(value);
-
-    useEffect(() => {
-        setIsPlaying(false);
-    }, [activeCamera?.id]);
 
 
     const StatCard = ({ icon: Icon, label, value, subtext }) => (
@@ -65,16 +72,6 @@ const DashboardHome = () => {
             </div>
         </div>
     );
-
-    const handlePlay = () => {
-        if (showPlayableStream) {
-            setIsPlaying(true);
-        }
-    };
-
-    const handleStop = () => {
-        setIsPlaying(false);
-    };
 
     return (
         <div className="space-y-6 duration-500 md:space-y-8 animate-in fade-in slide-in-from-bottom-4">
@@ -110,7 +107,7 @@ const DashboardHome = () => {
 
                     {/* Main Player */}
                     <div ref={playerRef} className={`${isFullscreen ? 'w-full h-full rounded-none border-0' : 'aspect-[4/3] md:aspect-video rounded-[28px] md:rounded-[36px] border border-navy/5'} bg-[#1c3551] overflow-hidden relative shadow-[0_20px_60px_rgba(15,23,42,0.12)] group transition-all duration-300`}>
-                        {showPlayableStream && isPlaying ? (
+                        {showPlayableStream ? (
                             <>
                                 <iframe
                                     title={activeCameraLabel}
@@ -158,29 +155,33 @@ const DashboardHome = () => {
                             </p>
                         </div>
 
-                        <button
-                            type="button"
-                            onClick={showPlayableStream ? (isPlaying ? handleStop : handlePlay) : undefined}
-                            disabled={!showPlayableStream}
-                            className={`absolute left-1/2 bottom-5 -translate-x-1/2 inline-flex items-center gap-3 rounded-full px-6 py-4 text-xs font-black uppercase tracking-[0.22em] transition-all border backdrop-blur-md ${showPlayableStream ? 'bg-slate-900/80 text-white border-white/10 shadow-lg shadow-slate-950/20 hover:bg-slate-900' : 'bg-white/10 text-white/40 border-white/10 cursor-not-allowed'}`}
-                            aria-label={isPlaying ? 'Stop stream' : 'Play stream'}
-                        >
-                            <span className="flex items-center justify-center w-8 h-8 border rounded-full border-white/20 bg-white/10">
-                                {isPlaying ? <Square size={14} /> : <PlayCircle size={14} />}
-                            </span>
-                            <span className="leading-tight text-left">
-                                <span className="block text-white/55 text-[9px] font-bold tracking-[0.2em]">Recording Status</span>
-                                <span className="block text-[11px] md:text-xs text-white">
-                                    {isPlaying ? 'Stop' : 'Play'}
-                                </span>
-                            </span>
-                        </button>
+                        <div className="absolute inset-x-0 right-0 flex justify-end px-4 bottom-5 md:bottom-8">
+                            <button
+                                type="button"
+                                onClick={handleToggleFullscreen}
+                                className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 bg-slate-900/70 px-5 py-4 text-xs font-black uppercase tracking-[0.22em] text-white backdrop-blur-md shadow-lg shadow-slate-950/20 hover:bg-slate-900"
+                                aria-label={isFullscreen ? 'Exit maximize' : 'Maximize stream'}
+                                title={isFullscreen ? 'Exit maximize' : 'Maximize stream'}
+                            >
+                                {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                            </button>
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 md:grid-cols-3 md:gap-5">
                         {cameras.filter((camera) => camera.status === 'online').length > 0 ? cameras.filter((camera) => camera.status === 'online' && camera.id !== activeCamera?.id).map((cam) => (
-                            <button key={cam.id} onClick={() => setActiveCamera(cam)} className="aspect-[4/3] md:aspect-video bg-white rounded-[22px] md:rounded-[26px] overflow-hidden relative border border-navy/5 shadow-sm group transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
-                                <img src={cam.thumbnail} className="object-cover w-full h-full transition-all duration-700 scale-105 opacity-70 group-hover:opacity-90 group-hover:scale-100" alt="thumb" />
+                            <button key={cam.id} onClick={() => setActiveCamera(cam)} className="aspect-[2/4] md:aspect-video bg-white rounded-[20px] md:rounded-[26px] overflow-hidden relative border border-navy/5 shadow-sm group transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
+                                {cameraStreamSources[cam.id] ? (
+                                    <iframe
+                                        title={cam.channelName || cam.name}
+                                        src={cameraStreamSources[cam.id].livePlayerUrl || cameraStreamSources[cam.id].hlsUrl}
+                                        className="absolute inset-0 w-full h-full border-0"
+                                        allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                                        allowFullScreen
+                                    />
+                                ) : (
+                                    <img src={cam.thumbnail} className="object-cover w-full h-full transition-all duration-700 scale-105 opacity-70 group-hover:opacity-90 group-hover:scale-100" alt="thumb" />
+                                )}
                                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/10 to-transparent" />
                                 <div className="absolute px-3 py-2 transition-all duration-300 border inset-x-3 bottom-3 bg-black/30 backdrop-blur-md rounded-2xl border-white/10">
                                     <span className="text-[9px] font-black text-white uppercase tracking-[0.18em]">{cam.channelName || cam.name}</span>
