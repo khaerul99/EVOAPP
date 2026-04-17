@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     LayoutDashboard, Video, FileBarChart, ScanFace, PlayCircle,
-    LogOut, Shield, ChevronLeft, X
+    LogOut, Shield, ChevronLeft, X, Users
 } from 'lucide-react';
 import { logout } from '../../stores/useStore';
 
@@ -16,6 +16,7 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
     const menuItems = [
         { icon: LayoutDashboard, label: "Intelligence", path: "/dashboard" },
         { icon: Video, label: "Camera Management", path: "/dashboard/camera" },
+        { icon: Users, label: "User Management", path: "/dashboard/users" },
         { icon: PlayCircle, label: "Playback", path: "/dashboard/playback" },
         { icon: ScanFace, label: "Face Recognition", path: "/dashboard/face" },
         { icon: FileBarChart, label: "Analytics", path: "/dashboard/reports" },

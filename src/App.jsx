@@ -10,6 +10,7 @@ import Playback from './pages/management/playback/Playback'
 import SystemSettings from './pages/settings/SystemSettings'
 import ProtectedRoute from './middleware/auth/ProtectedRoute'
 import SecurityLogs from './pages/settings/SecurityLogs'
+import UserManagement from './pages/management/user/UserManagement'
 
 const routes = createBrowserRouter([
   {
@@ -43,6 +44,10 @@ const routes = createBrowserRouter([
           {
             path: "face",
             element: <FaceManagement />
+          },
+          {
+            path: "users",
+            element: <UserManagement />
           },
           {
             path: "playback",
