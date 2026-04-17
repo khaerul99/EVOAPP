@@ -3,6 +3,7 @@ import { addSecurityLog } from './security-log'
 
 export const SESSION_KEY = 'evosecure_session'
 export const REMEMBER_KEY = 'evosecure_remember_username'
+export const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 export function getSession() {
     try {
@@ -16,13 +17,41 @@ export function getSession() {
     }
 }
 
+export function isSessionExpired(session) {
+    if (!session?.username) {
+        return true
+    }
+
+    // Login timestamp is mandatory to enforce 24-hour session expiry.
+    if (typeof session.loginAt !== 'number') {
+        return true
+    }
+
+    return (Date.now() - session.loginAt) >= SESSION_MAX_AGE_MS
+}
+
 export function hasSession() {
     const session = getSession()
-    return Boolean(session?.username)
+    if (!session?.username) {
+        return false
+    }
+
+    if (isSessionExpired(session)) {
+        clearSession()
+        return false
+    }
+
+    return true
 }
 
 export function saveSession(session) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session))
+    localStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({
+            ...session,
+            loginAt: typeof session?.loginAt === 'number' ? session.loginAt : Date.now(),
+        }),
+    )
 }
 
 export function clearSession() {
