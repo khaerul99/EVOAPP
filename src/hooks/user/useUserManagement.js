@@ -86,6 +86,7 @@ export function useUserManagement() {
     const [selectedUserForPermission, setSelectedUserForPermission] = useState(null);
     const [onvifAvailable, setOnvifAvailable] = useState(false);
     const [onvifUsers, setOnvifUsers] = useState([]);
+    const [isUserManagementSupported, setIsUserManagementSupported] = useState(true);
 
     const loadAllUsers = useCallback(async () => {
         try {
@@ -306,8 +307,14 @@ export function useUserManagement() {
             closeAddModal();
             await loadAllUsers();
             setStatusMessage('User berhasil ditambahkan.');
-        } catch {
-            setStatusMessage('Gagal menambahkan user. Periksa parameter tambahan yang dibutuhkan perangkat.');
+        } catch (error) {
+            const status = error?.response?.status;
+            if (status === 501) {
+                setIsUserManagementSupported(false);
+                setStatusMessage('Perangkat tidak mendukung penambahan user.');
+            } else {
+                setStatusMessage('Gagal menambahkan user. Periksa parameter tambahan yang dibutuhkan perangkat.');
+            }
         } finally {
             setSubmitting(false);
         }
@@ -333,13 +340,22 @@ export function useUserManagement() {
             setSubmitting(true);
             setStatusMessage('');
 
-            await userService.modifyUser({
-                payload: buildPayloadFromForm({
-                    ...formData,
-                    password: '',
-                }),
-                extraQuery: formData.extraQuery,
-            });
+            try {
+                await userService.modifyUser({
+                    payload: buildPayloadFromForm({
+                        ...formData,
+                        password: '',
+                    }),
+                    extraQuery: formData.extraQuery,
+                });
+            } catch (error) {
+                const status = error?.response?.status;
+                if (status === 501) {
+                    setIsUserManagementSupported(false);
+                    throw new Error('Perangkat tidak mendukung perubahan user.');
+                }
+                throw error;
+            }
 
             if (shouldModifyPassword) {
                 await userService.modifyPassword({
@@ -428,5 +444,6 @@ export function useUserManagement() {
         setSelectedUserForPermission,
         onvifAvailable,
         onvifUsers,
+        isUserManagementSupported,
     };
 }
