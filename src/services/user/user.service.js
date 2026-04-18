@@ -67,6 +67,9 @@ function normalizeUserRecord(user, index = 0) {
     const group = pickFirstValue(user, ['GroupName', 'Group', 'group', 'UserGroup', 'AuthorityList']);
     const remark = pickFirstValue(user, ['Memo', 'memo', 'Remark', 'remark', 'Comment']);
     const authority = pickFirstValue(user, ['Authority', 'authority', 'Level', 'level', 'Type', 'type']);
+    const authorities = Array.isArray(user?.AuthorityList)
+        ? user.AuthorityList.map((entry) => String(entry || '').trim()).filter(Boolean)
+        : [];
 
     return {
         id: index + 1,
@@ -74,6 +77,7 @@ function normalizeUserRecord(user, index = 0) {
         group: group || '-',
         authority: authority || '-',
         remark,
+        authorities,
         raw: user,
     };
 }
@@ -107,6 +111,23 @@ function parseUsersFromKeyValuePayload(rawData) {
 
     Object.entries(keyValueMap).forEach(([key, value]) => {
         let matched = false;
+
+        const authorityMatch = key.match(/^(?:table\.)?(?:userInfo|users?|user)\[(\d+)\]\.AuthorityList\[(\d+)\]$/i)
+            || key.match(/^(?:table\.)?(?:userInfo|users?|user)\.([^.]+)\.AuthorityList\[(\d+)\]$/i);
+        if (authorityMatch) {
+            const userId = String(authorityMatch[1] || '').trim();
+            const index = String(authorityMatch[2] || '').trim();
+            if (userId) {
+                if (!groupedUsers[userId]) {
+                    groupedUsers[userId] = {};
+                }
+                if (!Array.isArray(groupedUsers[userId].AuthorityList)) {
+                    groupedUsers[userId].AuthorityList = [];
+                }
+                groupedUsers[userId].AuthorityList[Number(index)] = value;
+                return;
+            }
+        }
 
         for (const pattern of patterns) {
             const match = key.match(pattern);
@@ -149,6 +170,10 @@ function parseUsersFromKeyValuePayload(rawData) {
             const normalizedField = field.includes('.') ? field.split('.').pop() : field;
             normalized[normalizedField] = raw[field];
         });
+
+        if (Array.isArray(raw.AuthorityList)) {
+            normalized.AuthorityList = raw.AuthorityList.filter(Boolean);
+        }
 
         return normalized;
     });
@@ -199,19 +224,235 @@ function parseQueryStringInput(queryString) {
     return params;
 }
 
-function buildUserPayload(basePayload = {}, extraQuery = '') {
-    const payload = {};
+function normalizeAuthorityList(authorityInput) {
+    if (Array.isArray(authorityInput)) {
+        return authorityInput.map((entry) => String(entry || '').trim()).filter(Boolean);
+    }
 
-    Object.entries(basePayload).forEach(([key, value]) => {
-        const text = String(value ?? '').trim();
-        if (!text) {
-            return;
+    return String(authorityInput || '')
+        .split(',')
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean);
+}
+
+function isBadRequestError(error) {
+    const status = error?.response?.status;
+    const body = String(error?.response?.data || '').toLowerCase();
+    return status === 400 || body.includes('bad request');
+}
+
+function isAuthError(error) {
+    const status = error?.response?.status;
+    return status === 401 || status === 403;
+}
+
+function isFailedActionPayload(data) {
+    if (data === null || data === undefined) {
+        return false;
+    }
+
+    const text = String(data).trim().toLowerCase();
+    if (!text) {
+        return false;
+    }
+
+    const hasFailureSignal = text.includes('error')
+        || text.includes('failed')
+        || text.includes('bad request')
+        || text.includes('invalid')
+        || text.includes('denied');
+    const hasSuccessSignal = text.includes('ok') || text.includes('success');
+
+    return hasFailureSignal && !hasSuccessSignal;
+}
+
+async function callUserManagerWithParamFallback(paramVariants = []) {
+    let lastError;
+
+    for (const params of paramVariants) {
+        try {
+            const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
+                params,
+            });
+
+            if (isFailedActionPayload(response?.data)) {
+                const actionError = new Error(String(response?.data || 'User manager action failed.'));
+                actionError.response = { data: response?.data, status: response?.status };
+                throw actionError;
+            }
+
+            return response?.data;
+        } catch (error) {
+            if (isAuthError(error)) {
+                throw error;
+            }
+
+            lastError = error;
         }
-        payload[key] = text;
-    });
+    }
+
+    if (lastError) {
+        throw lastError;
+    }
+
+    throw new Error('Tidak ada format parameter yang bisa dipakai untuk request userManager.');
+}
+
+function buildAddUserParams(payload = {}, extraQuery = '', mode = 'nested', options = {}) {
+    const action = String(options?.action || 'addUser').trim() || 'addUser';
+    const profile = String(options?.profile || 'full').trim();
+    const authorityMode = String(options?.authorityMode || 'default').trim();
+    const name = String(payload?.name || '').trim();
+    const password = String(payload?.password || '').trim();
+    const group = String(payload?.group || '').trim();
+    const memo = String(payload?.remark || '').trim();
+    const sharable = payload?.sharable !== undefined ? String(Boolean(payload.sharable)) : 'true';
+    const reserved = payload?.reserved !== undefined ? String(Boolean(payload.reserved)) : 'false';
+    const needModPwd = payload?.needModPwd !== undefined ? String(Boolean(payload.needModPwd)) : 'false';
+    const authorityList = normalizeAuthorityList(payload?.authority);
+
+    const params = mode === 'flat'
+        ? {
+            action,
+            name,
+            pwd: password,
+            Name: name,
+            Password: password,
+        }
+        : {
+            action,
+            'user.Name': name,
+            'user.Password': password,
+        };
+
+    if (profile === 'full') {
+        if (mode === 'flat') {
+            params.sharable = sharable;
+            params.reserved = reserved;
+            params.needModPwd = needModPwd;
+        } else {
+            params['user.Sharable'] = sharable;
+            params['user.Reserved'] = reserved;
+            params['user.NeedModPwd'] = needModPwd;
+        }
+    }
+
+    if (group) {
+        params[mode === 'flat' ? 'group' : 'user.Group'] = group;
+        if (mode === 'flat' && profile === 'minimal') {
+            params.Group = group;
+        }
+    }
+
+    if (memo) {
+        params[mode === 'flat' ? 'memo' : 'user.Memo'] = memo;
+    }
+
+    if (authorityList.length > 0) {
+        authorityList.forEach((entry, index) => {
+            let authorityKey;
+            if (mode === 'flat') {
+                authorityKey = authorityMode === 'AuthorityList'
+                    ? `AuthorityList[${index}]`
+                    : `authorities[${index}]`;
+            } else {
+                authorityKey = `user.AuthorityList[${index}]`;
+            }
+            params[authorityKey] = entry;
+        });
+
+        if (mode === 'flat') {
+            params.authority = authorityList.join(',');
+        }
+    }
 
     return {
-        ...payload,
+        ...params,
+        ...parseQueryStringInput(extraQuery),
+    };
+}
+
+function buildModifyUserParams(payload = {}, extraQuery = '', fallbackAuthorities = [], mode = 'nested', options = {}) {
+    const action = String(options?.action || 'modifyUser').trim() || 'modifyUser';
+    const profile = String(options?.profile || 'full').trim();
+    const authorityMode = String(options?.authorityMode || 'default').trim();
+    const name = String(payload?.name || '').trim();
+    const password = String(payload?.password || '').trim();
+    const group = String(payload?.group || '').trim();
+    const memo = String(payload?.remark || '').trim();
+    const sharable = payload?.sharable !== undefined ? String(Boolean(payload.sharable)) : 'true';
+    const reserved = payload?.reserved !== undefined ? String(Boolean(payload.reserved)) : 'false';
+    const authorities = normalizeAuthorityList(payload?.authority);
+    const mergedAuthorities = authorities.length > 0 ? authorities : normalizeAuthorityList(fallbackAuthorities);
+
+    const params = mode === 'flat'
+        ? {
+            action,
+            name,
+            oldName: name,
+            Name: name,
+        }
+        : {
+            action,
+            name,
+        };
+
+    if (profile === 'full') {
+        if (mode === 'flat') {
+            params.sharable = sharable;
+            params.reserved = reserved;
+        } else {
+            params['user.Sharable'] = sharable;
+            params['user.Reserved'] = reserved;
+        }
+    }
+
+    if (name) {
+        if (mode !== 'flat') {
+            params['user.Name'] = name;
+        } else {
+            params.userName = name;
+        }
+    }
+
+    if (password) {
+        params[mode === 'flat' ? 'pwd' : 'user.Password'] = password;
+        if (mode === 'flat') {
+            params.Password = password;
+        }
+    }
+
+    if (group) {
+        params[mode === 'flat' ? 'group' : 'user.Group'] = group;
+        if (mode === 'flat' && profile === 'minimal') {
+            params.Group = group;
+        }
+    }
+
+    if (memo) {
+        params[mode === 'flat' ? 'memo' : 'user.Memo'] = memo;
+    }
+
+    if (mergedAuthorities.length > 0) {
+        mergedAuthorities.forEach((entry, index) => {
+            let authorityKey;
+            if (mode === 'flat') {
+                authorityKey = authorityMode === 'AuthorityList'
+                    ? `AuthorityList[${index}]`
+                    : `authorities[${index}]`;
+            } else {
+                authorityKey = `user.AuthorityList[${index}]`;
+            }
+            params[authorityKey] = entry;
+        });
+
+        if (mode === 'flat') {
+            params.authority = mergedAuthorities.join(',');
+        }
+    }
+
+    return {
+        ...params,
         ...parseQueryStringInput(extraQuery),
     };
 }
@@ -244,25 +485,30 @@ export const userService = {
     },
 
     addUser: async ({ payload = {}, extraQuery = '' }) => {
-        const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
-            params: {
-                action: 'addUser',
-                ...buildUserPayload(payload, extraQuery),
-            },
-        });
-
-        return response?.data;
+        return callUserManagerWithParamFallback([
+            buildAddUserParams(payload, extraQuery, 'nested', { profile: 'minimal' }),
+            buildAddUserParams(payload, extraQuery, 'flat', { profile: 'minimal', authorityMode: 'default' }),
+        ]);
     },
 
     modifyUser: async ({ payload = {}, extraQuery = '' }) => {
-        const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
-            params: {
-                action: 'modifyUser',
-                ...buildUserPayload(payload, extraQuery),
-            },
-        });
+        try {
+            return await callUserManagerWithParamFallback([
+                buildModifyUserParams(payload, extraQuery, [], 'nested', { profile: 'minimal' }),
+                buildModifyUserParams(payload, extraQuery, [], 'flat', { profile: 'minimal', authorityMode: 'default' }),
+            ]);
+        } catch (error) {
+            if (!isBadRequestError(error)) {
+                throw error;
+            }
 
-        return response?.data;
+            const currentUser = await userService.getUserByName(payload?.name);
+            const fallbackAuthorities = currentUser?.user?.authorities || currentUser?.user?.raw?.AuthorityList || [];
+            return callUserManagerWithParamFallback([
+                buildModifyUserParams(payload, extraQuery, fallbackAuthorities, 'nested', { profile: 'full' }),
+                buildModifyUserParams(payload, extraQuery, fallbackAuthorities, 'flat', { profile: 'full', authorityMode: 'default' }),
+            ]);
+        }
     },
 
     deleteUser: async ({ name, extraQuery = '' }) => {
@@ -270,6 +516,50 @@ export const userService = {
             params: {
                 action: 'deleteUser',
                 name,
+                ...parseQueryStringInput(extraQuery),
+            },
+        });
+
+        return response?.data;
+    },
+
+    getOnvifDevice: async () => {
+        const response = await ApiClient.get('/cgi-bin/configManager.cgi', {
+            params: {
+                action: 'getConfig',
+                name: 'OnvifDevice',
+            },
+        });
+
+        return {
+            data: parseKeyValuePayload(response?.data),
+            raw: response?.data,
+        };
+    },
+
+    modifyPassword: async ({ name, pwd, pwdOld, extraQuery = '' }) => {
+        const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
+            params: {
+                action: 'modifyPassword',
+                name,
+                pwd,
+                pwdOld,
+                ...parseQueryStringInput(extraQuery),
+            },
+        });
+
+        return response?.data;
+    },
+
+    modifyPasswordByManager: async ({ userName, pwd, managerName, managerPwd, accountType = 0, extraQuery = '' }) => {
+        const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
+            params: {
+                action: 'modifyPasswordByManager',
+                userName,
+                pwd,
+                managerName,
+                managerPwd,
+                accountType,
                 ...parseQueryStringInput(extraQuery),
             },
         });

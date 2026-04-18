@@ -114,7 +114,13 @@ export function setupInterceptors(ApiClient) {
                 throw error
             }
 
-            if (response.status !== 401 || originalConfig.__digestRetried) {
+            if (response.status !== 401) {
+                throw error
+            }
+
+            const retryCount = Number(originalConfig.__digestRetryCount || 0)
+            const maxRetry = 2
+            if (retryCount >= maxRetry) {
                 throw error
             }
 
@@ -136,7 +142,7 @@ export function setupInterceptors(ApiClient) {
             const retriedConfig = appendDigestHeader(
                 {
                     ...originalConfig,
-                    __digestRetried: true,
+                    __digestRetryCount: retryCount + 1,
                 },
                 refreshedState,
             )

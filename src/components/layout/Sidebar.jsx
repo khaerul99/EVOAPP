@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     LayoutDashboard, Video, FileBarChart, ScanFace, PlayCircle,
-    LogOut, Shield, ChevronLeft, X, Users
+    LogOut, Shield, ChevronLeft, X, Users, ChevronDown,
+    Settings
 } from 'lucide-react';
 import { logout } from '../../stores/useStore';
 
@@ -11,16 +12,61 @@ import { logout } from '../../stores/useStore';
 const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
     const navigate = useNavigate();
     const location = useLocation();
-    
+    const [expandedGroups, setExpandedGroups] = useState({ dashboard: true, cctv: true, analytics: true, control: true });
 
-    const menuItems = [
-        { icon: LayoutDashboard, label: "Intelligence", path: "/dashboard" },
-        { icon: Video, label: "Camera Management", path: "/dashboard/camera" },
-        { icon: Users, label: "User Management", path: "/dashboard/users" },
-        { icon: PlayCircle, label: "Playback", path: "/dashboard/playback" },
-        { icon: ScanFace, label: "Face Recognition", path: "/dashboard/face" },
-        { icon: FileBarChart, label: "Analytics", path: "/dashboard/reports" },
+    const menuGroups = [
+        {
+            id: 'dashboard',
+            label: 'Dashboard',
+            icon: LayoutDashboard,
+            items: [
+                { label: "Dashboard Overview", path: "/dashboard" },
+                { label: "Activity Log", path: "/dashboard/activity" },
+            ]
+        },
+        {
+            id: 'cctv',
+            label: 'CCTV Management',
+            icon: Video,
+            items: [
+                { label: "Camera Management", path: "/dashboard/camera" },
+            ]
+        },
+        {
+            id: 'analytics',
+            label: 'AI & Analytics',
+            icon: FileBarChart,
+            items: [
+                { label: "People Counting", path: "/dashboard/people" },
+                { label: "Analytics Report", path: "/dashboard/reports" },
+            ]
+        },
+        {
+            id: 'control',
+            label: 'Data & Control',
+            icon: PlayCircle,
+            items: [
+                { label: "Playback", path: "/dashboard/playback" },
+                { label: "System Settings", path: "/dashboard/settings" },
+            ]
+        },
+        {
+            id: 'user',
+            label: 'Management',
+            icon: Users,
+            items: [
+                { label: "User Management", path: "/dashboard/users" },
+                { label: "Face Recognition", path: "/dashboard/face" },
+            ]
+        },
     ];
+
+    const toggleGroup = (groupId) => {
+        setExpandedGroups(prev => ({
+            ...prev,
+            [groupId]: !prev[groupId]
+        }));
+    };
 
     const handleLogout = async () => {
         await logout();
@@ -57,33 +103,76 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
-                {menuItems.map((item) => {
-                    const isActive = location.pathname === item.path;
+            <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+                {menuGroups.map((group) => {
+                    const isExpanded = expandedGroups[group.id];
+                    const hasActiveItem = group.items.some(item => location.pathname === item.path);
+                    
                     return (
-                        <button
-                            key={item.path}
-                            onClick={() => {
-                                navigate(item.path);
-                                if (window.innerWidth < 1024) onToggleSidebar(); 
-                            }}
-                            className={`group relative w-full flex items-center h-14 rounded-2xl transition-all duration-300
-                                ${isActive ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
-                        >
-                            <div className={`flex items-center justify-center transition-all duration-500 ${isSidebarOpen ? 'w-16' : 'w-full'}`}>
-                                <item.icon size={22} className={isActive ? 'text-accent' : ''} />
-                            </div>
-                            
-                            {isSidebarOpen && (
-                                <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm font-bold tracking-wide">
-                                    {item.label}
-                                </motion.span>
-                            )}
+                        <div key={group.id} className="space-y-1">
+                            {/* Group Header */}
+                            <button
+                                onClick={() => isSidebarOpen && toggleGroup(group.id)}
+                                className={`group relative w-full flex items-center justify-between h-14 rounded-2xl transition-all duration-300 px-3
+                                    ${hasActiveItem ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+                            >
+                                <div className="flex items-center flex-1 min-w-0 gap-3">
+                                    <div className={`flex items-center justify-center flex-shrink-0 transition-all duration-500`}>
+                                        <group.icon size={22} className={hasActiveItem ? 'text-accent' : ''} />
+                                    </div>
+                                    
+                                    {isSidebarOpen && (
+                                        <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm font-bold tracking-wide truncate">
+                                            {group.label}
+                                        </motion.span>
+                                    )}
+                                </div>
 
-                            {isActive && (
-                                <motion.div layoutId="activeIndicator" className="absolute left-0 w-1.5 h-6 rounded-full bg-accent" />
-                            )}
-                        </button>
+                                {isSidebarOpen && (
+                                    <motion.div
+                                        animate={{ rotate: isExpanded ? 180 : 0 }}
+                                        transition={{ duration: 0.3 }}
+                                        className="flex-shrink-0"
+                                    >
+                                        <ChevronDown size={18} />
+                                    </motion.div>
+                                )}
+
+                                {hasActiveItem && (
+                                    <motion.div layoutId="activeIndicator" className="absolute left-0 w-1.5 h-6 rounded-full bg-accent" />
+                                )}
+                            </button>
+
+                            {/* Group Items */}
+                            <AnimatePresence>
+                                {isSidebarOpen && isExpanded && (
+                                    <motion.div
+                                        initial={{ opacity: 0, height: 0 }}
+                                        animate={{ opacity: 1, height: 'auto' }}
+                                        exit={{ opacity: 0, height: 0 }}
+                                        transition={{ duration: 0.3 }}
+                                        className="space-y-1 overflow-hidden"
+                                    >
+                                        {group.items.map((item) => {
+                                            const isActive = location.pathname === item.path;
+                                            return (
+                                                <button
+                                                    key={item.path}
+                                                    onClick={() => {
+                                                        navigate(item.path);
+                                                        if (window.innerWidth < 1024) onToggleSidebar();
+                                                    }}
+                                                    className={`group relative w-full flex items-center h-12 rounded-xl transition-all duration-300 pl-14 pr-3 text-left text-sm
+                                                        ${isActive ? 'bg-accent/20 text-accent font-semibold' : 'text-white/50 hover:text-white/80 hover:bg-white/5'}`}
+                                                >
+                                                    {item.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
                     );
                 })}
             </nav>
