@@ -46,6 +46,7 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
             label: 'Data & Control',
             icon: PlayCircle,
             items: [
+                { label: "Live Monitoring", path: "/dashboard/live" },
                 { label: "Playback", path: "/dashboard/playback" },
                 { label: "System Settings", path: "/dashboard/settings" },
             ]
