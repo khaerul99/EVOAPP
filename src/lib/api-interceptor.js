@@ -119,7 +119,7 @@ export function setupInterceptors(ApiClient) {
             }
 
             const retryCount = Number(originalConfig.__digestRetryCount || 0)
-            const maxRetry = 2
+            const maxRetry = 1
             if (retryCount >= maxRetry) {
                 throw error
             }

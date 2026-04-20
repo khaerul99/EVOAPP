@@ -189,7 +189,7 @@ async function executeDigestAttempt({ endpointPath, method, username, password, 
     }
 
     let lastStatus = firstResponse.status
-    for (let round = 0; round < 4; round += 1) {
+    for (let round = 0; round < 1; round += 1) {
         const digestResponse = await sendDigestRequest({
             endpointPath,
             method,
@@ -262,7 +262,7 @@ export async function loginWithDigest(username, password) {
     try {
         let lastError = 'Autentikasi gagal.'
 
-        for (let attempt = 0; attempt < 4; attempt += 1) {
+        for (let attempt = 0; attempt < 1; attempt += 1) {
             const endpointPath = withCacheBust(AUTH_PROBE_PATH)
             const result = await executeDigestAttempt({
                 endpointPath,
@@ -281,10 +281,6 @@ export async function loginWithDigest(username, password) {
 
             if (String(lastError).toLowerCase().includes('endpoint login tidak valid')) {
                 break
-            }
-
-            if (attempt < 2) {
-                await new Promise((resolve) => setTimeout(resolve, 120))
             }
         }
 

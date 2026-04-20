@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cancelLoginRequest, loginWithDigest } from '../../services/auth/auth.service'
-import { warmupDigestChallenge } from '../../services/auth/digest-warmup.service'
 import { authStore } from '../../stores/authSlice'
-import { REMEMBER_KEY, getSession, hasSession, saveSession } from '../../lib/session-helper'
-import { addSecurityLog } from '../../lib/security-log'
+import { REMEMBER_KEY, clearSession, getRemainingLogoutCooldownMs, hasSession, saveSession } from '../../lib/session-helper'
+import { addSecurityLog, getSecurityLogs } from '../../lib/security-log'
 
-const DIGEST_LOGIN_RETRY_DELAY_MS = 2500
-const DIGEST_LOGIN_MAX_RETRY = 6
+const DIGEST_LOGIN_MAX_RETRY = 0
 
 function sleep(milliseconds) {
     return new Promise((resolve) => {
@@ -33,6 +31,7 @@ export function useLogin() {
     const [error, setError] = useState('')
     const [loadingMessage, setLoadingMessage] = useState('')
     const isSubmittingRef = useRef(false)
+    const lastSubmitAtRef = useRef(0)
 
     useEffect(() => {
         if (hasSession()) {
@@ -58,12 +57,27 @@ export function useLogin() {
         if (isSubmittingRef.current) {
             return
         }
+        const now = Date.now()
+        if (now - lastSubmitAtRef.current < 1500) {
+            return
+        }
+        lastSubmitAtRef.current = now
 
         isSubmittingRef.current = true
         setError('')
         setIsLoading(true)
         setLoadingMessage('Memverifikasi kredensial...')
         try {
+            
+            clearSession({ silent: true, markLogoutAt: false })
+
+            const remainingCooldownMs = getRemainingLogoutCooldownMs()
+            if (remainingCooldownMs > 0) {
+                setLoadingMessage(`Menunggu sinkronisasi logout ${Math.ceil(remainingCooldownMs / 1000)} detik...`)
+                await sleep(remainingCooldownMs)
+                setLoadingMessage('Memverifikasi kredensial...')
+            }
+
             let loginResult = null
             let lastError = null
 
@@ -81,7 +95,6 @@ export function useLogin() {
                     }
 
                     setLoadingMessage(`Autentikasi digest diproses, mencoba ulang otomatis... (${attempt + 1}/${DIGEST_LOGIN_MAX_RETRY})`)
-                    await sleep(DIGEST_LOGIN_RETRY_DELAY_MS)
                 }
             }
 
@@ -100,8 +113,8 @@ export function useLogin() {
                 digestSecret: loginResult?.digestSecret || null,
                 challenge: loginResult?.challenge || null,
             })
-            // Non-blocking warm-up to reduce first-hit 401 on feature endpoints.
-            warmupDigestChallenge().catch(() => {})
+            // Warm-up disabled to prevent account lockout from excessive auth requests
+            // warmupDigestChallenge().catch(() => {})
 
             if (rememberMe) {
                 localStorage.setItem(REMEMBER_KEY, username)
@@ -126,6 +139,20 @@ export function useLogin() {
                 message: errorMessage,
                 username: username || '-',
             })
+
+            const now = Date.now()
+            const recentFailedLogins = getSecurityLogs().filter((log) => {
+                return log?.action === 'login_failed' && (now - Number(log?.timestamp || 0)) <= 1000
+            })
+
+            if (recentFailedLogins.length >= 3) {
+                addSecurityLog({
+                    level: 'warning',
+                    action: 'auth_retry_burst_detected',
+                    message: `Terdeteksi ${recentFailedLogins.length} login gagal dalam 1 detik. Cek retry interceptor/auth flow.`,
+                    username: username || '-',
+                })
+            }
         } finally {
             setIsLoading(false)
             setLoadingMessage('')

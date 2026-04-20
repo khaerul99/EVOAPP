@@ -78,7 +78,7 @@ export const useDashboard = () => {
             }
         };
 
-        fetchCameras();
+        // fetchCameras();
 
         return () => {
             cancelled = true;
