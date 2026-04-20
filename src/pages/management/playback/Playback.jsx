@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Clock3, Loader2, PlayCircle, Radio, Search, Signal } from 'lucide-react';
+import { Loader2, PlayCircle, Radio, Search, Signal } from 'lucide-react';
 import { formatRecordingDuration, formatRecordingLabel, usePlayback } from '../../../hooks/playback/usePlayback';
 
 const Playback = () => {

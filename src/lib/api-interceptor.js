@@ -110,11 +110,19 @@ export function setupInterceptors(ApiClient) {
             }
 
             if (response.status === 403) {
-                authStore.actions.clearSession()
                 throw error
             }
 
             if (response.status !== 401) {
+                throw error
+            }
+
+            if (originalConfig.__noRetry) {
+                throw error
+            }
+
+            const requestUrl = String(originalConfig.url || '').toLowerCase()
+            if (requestUrl.includes('.m3u8') || requestUrl.includes('playlist') || requestUrl.includes('manifest')) {
                 throw error
             }
 
@@ -126,14 +134,12 @@ export function setupInterceptors(ApiClient) {
 
             const authState = authStore.getState()
             if (!authState?.auth?.username || !authState?.auth?.digestSecret) {
-                authStore.actions.clearSession()
                 throw error
             }
 
             const authenticateHeader = getHeaderCaseInsensitive(response.headers, 'www-authenticate')
             const challenge = parseDigestChallenge(authenticateHeader || '')
             if (!challenge) {
-                authStore.actions.clearSession()
                 throw error
             }
 

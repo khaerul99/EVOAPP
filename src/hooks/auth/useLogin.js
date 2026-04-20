@@ -5,19 +5,17 @@ import { authStore } from '../../stores/authSlice'
 import { REMEMBER_KEY, clearSession, getRemainingLogoutCooldownMs, hasSession, saveSession } from '../../lib/session-helper'
 import { addSecurityLog, getSecurityLogs } from '../../lib/security-log'
 
-const DIGEST_LOGIN_MAX_RETRY = 0
-
 function sleep(milliseconds) {
     return new Promise((resolve) => {
         setTimeout(resolve, milliseconds)
     })
 }
 
-function isDigestTransientError(errorMessage) {
-    const normalized = String(errorMessage || '').toLowerCase()
-    return normalized.includes('header digest tidak ditemukan')
-        || normalized.includes('network error')
-        || normalized.includes('koneksi timeout')
+function extractLockSeconds(errorMessage) {
+    const normalized = String(errorMessage || '')
+    const match = normalized.match(/"?rmlock"?\s*[:=]\s*(\d+)/i)
+    const value = Number(match?.[1] || 0)
+    return Number.isFinite(value) && value > 0 ? value : 0
 }
 
 export function useLogin() {
@@ -30,8 +28,29 @@ export function useLogin() {
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState('')
     const [loadingMessage, setLoadingMessage] = useState('')
+    const [lockoutUntil, setLockoutUntil] = useState(0)
+    const [lockoutRemainingSec, setLockoutRemainingSec] = useState(0)
     const isSubmittingRef = useRef(false)
     const lastSubmitAtRef = useRef(0)
+
+    useEffect(() => {
+        if (lockoutUntil <= 0) {
+            setLockoutRemainingSec(0)
+            return undefined
+        }
+
+        const sync = () => {
+            const remainingMs = Math.max(0, lockoutUntil - Date.now())
+            setLockoutRemainingSec(Math.ceil(remainingMs / 1000))
+            if (remainingMs <= 0) {
+                setLockoutUntil(0)
+            }
+        }
+
+        sync()
+        const timer = setInterval(sync, 500)
+        return () => clearInterval(timer)
+    }, [lockoutUntil])
 
     useEffect(() => {
         if (hasSession()) {
@@ -46,17 +65,21 @@ export function useLogin() {
         }
     }, [navigate])
 
-    useEffect(() => {
-        return () => {
-            cancelLoginRequest()
-        }
-    }, [])
+    useEffect(() => () => cancelLoginRequest(), [])
 
     const handleSubmit = async (event) => {
         event.preventDefault()
+
+        if (lockoutUntil > Date.now()) {
+            const waitSeconds = Math.ceil((lockoutUntil - Date.now()) / 1000)
+            setError(`Akun sedang terkunci. Coba lagi ${waitSeconds} detik.`)
+            return
+        }
+
         if (isSubmittingRef.current) {
             return
         }
+
         const now = Date.now()
         if (now - lastSubmitAtRef.current < 1500) {
             return
@@ -67,8 +90,8 @@ export function useLogin() {
         setError('')
         setIsLoading(true)
         setLoadingMessage('Memverifikasi kredensial...')
+
         try {
-            
             clearSession({ silent: true, markLogoutAt: false })
 
             const remainingCooldownMs = getRemainingLogoutCooldownMs()
@@ -78,30 +101,7 @@ export function useLogin() {
                 setLoadingMessage('Memverifikasi kredensial...')
             }
 
-            let loginResult = null
-            let lastError = null
-
-            for (let attempt = 0; attempt <= DIGEST_LOGIN_MAX_RETRY; attempt += 1) {
-                try {
-                    loginResult = await loginWithDigest(username, password)
-                    lastError = null
-                    break
-                } catch (requestError) {
-                    lastError = requestError
-                    const errorMessage = requestError?.message || ''
-                    const canAutoRetry = isDigestTransientError(errorMessage) && attempt < DIGEST_LOGIN_MAX_RETRY
-                    if (!canAutoRetry) {
-                        throw requestError
-                    }
-
-                    setLoadingMessage(`Autentikasi digest diproses, mencoba ulang otomatis... (${attempt + 1}/${DIGEST_LOGIN_MAX_RETRY})`)
-                }
-            }
-
-            if (!loginResult && lastError) {
-                throw lastError
-            }
-
+            const loginResult = await loginWithDigest(username, password)
             const sessionPayload = {
                 username: loginResult?.username || username,
                 loginAt: Date.now(),
@@ -112,9 +112,8 @@ export function useLogin() {
                 username: sessionPayload.username,
                 digestSecret: loginResult?.digestSecret || null,
                 challenge: loginResult?.challenge || null,
+                rtspPassword: password,
             })
-            // Warm-up disabled to prevent account lockout from excessive auth requests
-            // warmupDigestChallenge().catch(() => {})
 
             if (rememberMe) {
                 localStorage.setItem(REMEMBER_KEY, username)
@@ -132,7 +131,15 @@ export function useLogin() {
             navigate('/dashboard', { replace: true })
         } catch (requestError) {
             const errorMessage = requestError?.message || 'Username atau password salah.'
-            setError(errorMessage)
+            const lockSeconds = extractLockSeconds(errorMessage)
+
+            if (lockSeconds > 0) {
+                setLockoutUntil(Date.now() + (lockSeconds * 1000))
+                setError(`Akun terkunci sementara. Coba lagi ${lockSeconds} detik.`)
+            } else {
+                setError(errorMessage)
+            }
+
             addSecurityLog({
                 level: 'error',
                 action: 'login_failed',
@@ -140,9 +147,8 @@ export function useLogin() {
                 username: username || '-',
             })
 
-            const now = Date.now()
             const recentFailedLogins = getSecurityLogs().filter((log) => {
-                return log?.action === 'login_failed' && (now - Number(log?.timestamp || 0)) <= 1000
+                return log?.action === 'login_failed' && (Date.now() - Number(log?.timestamp || 0)) <= 1000
             })
 
             if (recentFailedLogins.length >= 3) {
@@ -167,6 +173,7 @@ export function useLogin() {
         showPassword,
         isLoading,
         loadingMessage,
+        lockoutRemainingSec,
         error,
         setUsername,
         setPassword,

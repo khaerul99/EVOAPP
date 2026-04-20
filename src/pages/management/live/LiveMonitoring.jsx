@@ -1,12 +1,10 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Loader2, PlayCircle, Radio, Search, Signal } from 'lucide-react';
-import { usePlayback } from '../../../hooks/playback/usePlayback';
+import { useLive } from '../../../hooks/live/useLive';
 
 const LiveMonitoring = () => {
     const {
         videoRef,
-        mode,
-        setMode,
         form,
         updateField,
         selectedChannel,
@@ -23,16 +21,11 @@ const LiveMonitoring = () => {
         activeTransportLabel,
         liveRenderMode,
         setLiveRenderMode,
+        authCooldownRemainingSec,
         manifestCodecs,
         go2rtcDiagnostic,
         handleStartStream,
-    } = usePlayback();
-
-    useEffect(() => {
-        if (mode !== 'live') {
-            setMode('live');
-        }
-    }, [mode, setMode]);
+    } = useLive();
 
     return (
         <div className="space-y-6 duration-500 animate-in fade-in">
@@ -52,7 +45,7 @@ const LiveMonitoring = () => {
             </div>
 
             {(error || playerError) && (
-                <div className="p-4 rounded-2xl border bg-white border-navy/10 text-navy/70 shadow-sm">
+                <div className="p-4 bg-white border shadow-sm rounded-2xl border-navy/10 text-navy/70">
                     <p className="text-xs font-semibold tracking-[0.2em] uppercase">
                         {error || playerError}
                     </p>
@@ -188,11 +181,11 @@ const LiveMonitoring = () => {
                         <button
                             type="button"
                             onClick={handleStartStream}
-                            disabled={isSubmitting || isLoadingChannels}
+                            disabled={isSubmitting || isLoadingChannels || authCooldownRemainingSec > 0}
                             className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-navy bg-navy py-4 text-[10px] font-black uppercase tracking-widest text-white transition-all hover:bg-navy/90 disabled:opacity-60"
                         >
                             {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-                            Start Live Stream
+                            {authCooldownRemainingSec > 0 ? `Tunggu ${authCooldownRemainingSec} dtk` : 'Start Live Stream'}
                         </button>
 
                         <div className="mt-5 space-y-3">

@@ -4,7 +4,7 @@ import {
     ChevronRight, Shield, Maximize2, Minimize2
 } from 'lucide-react';
 import { useDashboard } from '../../hooks/dashboard/useDashboard';
-import { playbackService } from '../../services/playback/playback.service';
+import { liveService } from '../../services/live/live.service';
 
 const DashboardHome = () => {
     const {
@@ -35,7 +35,11 @@ const DashboardHome = () => {
             return null;
         }
 
-        return playbackService.buildLiveStreamSources({ channel, subtype: 0 });
+        try {
+            return liveService.buildLiveStreamSources({ channel, subtype: 0 });
+        } catch {
+            return null;
+        }
     }, [activeCamera, hasActiveCamera]);
     const activePlayerUrl = activeStreamSources?.livePlayerUrl || '';
     const activeHlsUrl = activeStreamSources?.hlsUrl || '';
@@ -47,7 +51,11 @@ const DashboardHome = () => {
                 return accumulator;
             }
 
-            accumulator[camera.id] = playbackService.buildLiveStreamSources({ channel, subtype: 0 });
+            try {
+                accumulator[camera.id] = liveService.buildLiveStreamSources({ channel, subtype: 0 });
+            } catch {
+                accumulator[camera.id] = null;
+            }
             return accumulator;
         }, {});
     }, [cameras]);

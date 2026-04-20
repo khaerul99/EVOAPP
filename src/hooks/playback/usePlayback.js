@@ -117,7 +117,6 @@ function createInitialForm() {
 export function usePlayback() {
     const videoRef = useRef(null);
 
-    const [mode, setMode] = useState('playback');
     const [channels, setChannels] = useState([]);
     const [isLoadingChannels, setIsLoadingChannels] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -126,7 +125,6 @@ export function usePlayback() {
     const [streamSources, setStreamSources] = useState(null);
     const [lastAttemptSources, setLastAttemptSources] = useState(null);
     const [isHlsReady, setIsHlsReady] = useState(false);
-    const [liveRenderMode, setLiveRenderMode] = useState('auto');
     const [playbackRenderMode, setPlaybackRenderMode] = useState('player');
     const [go2rtcDiagnostic, setGo2rtcDiagnostic] = useState('');
     const [manifestCodecs, setManifestCodecs] = useState('');
@@ -202,25 +200,19 @@ export function usePlayback() {
     }, [channels]);
 
     const resolvedHlsUrl = streamSources?.hlsUrl || '';
-    const resolvedLivePlayerUrl = mode === 'live' ? (streamSources?.livePlayerUrl || '') : '';
-    const resolvedPlaybackPlayerUrl = mode === 'playback' ? (streamSources?.playbackPlayerUrl || '') : '';
-    const iframeUrl = mode === 'live' ? resolvedLivePlayerUrl : resolvedPlaybackPlayerUrl;
+    const resolvedPlaybackPlayerUrl = streamSources?.playbackPlayerUrl || '';
+    const iframeUrl = resolvedPlaybackPlayerUrl;
     const isHevcStream = /(^|,)\s*(hvc1|hev1)\b/i.test(String(manifestCodecs || ''));
 
-    const forceLiveHls = mode === 'live' && liveRenderMode === 'hls';
-    const forcePlaybackHls = mode === 'playback' && playbackRenderMode === 'hls';
-    const preferPlaybackIframe = mode === 'playback' && playbackRenderMode !== 'hls';
-    const shouldUseIframe = mode === 'live'
-        ? Boolean(iframeUrl) && !forceLiveHls
-        : Boolean(iframeUrl) && (!resolvedHlsUrl || isHevcStream || preferPlaybackIframe) && !forcePlaybackHls;
-    const shouldUseHls = mode === 'live'
-        ? Boolean(resolvedHlsUrl) && (forceLiveHls || !shouldUseIframe)
-        : Boolean(resolvedHlsUrl) && !shouldUseIframe;
+    const forcePlaybackHls = playbackRenderMode === 'hls';
+    const preferPlaybackIframe = playbackRenderMode !== 'hls';
+    const shouldUseIframe = Boolean(iframeUrl) && (!resolvedHlsUrl || isHevcStream || preferPlaybackIframe) && !forcePlaybackHls;
+    const shouldUseHls = Boolean(resolvedHlsUrl) && !shouldUseIframe;
 
     const activePlayerType = shouldUseHls ? 'hls' : (shouldUseIframe ? 'iframe' : 'none');
     const activeTransportLabel = useMemo(
-        () => getTransportLabel(mode, activePlayerType, Boolean(resolvedHlsUrl), Boolean(iframeUrl)),
-        [activePlayerType, iframeUrl, mode, resolvedHlsUrl],
+        () => getTransportLabel('playback', activePlayerType, Boolean(resolvedHlsUrl), Boolean(iframeUrl)),
+        [activePlayerType, iframeUrl, resolvedHlsUrl],
     );
     const activeSourceInfo = streamSources || lastAttemptSources;
 
@@ -251,12 +243,12 @@ export function usePlayback() {
         }
 
         const hls = new Hls({
-            lowLatencyMode: mode === 'live',
-            backBufferLength: mode === 'live' ? 8 : 45,
-            maxBufferLength: mode === 'live' ? 5 : 18,
-            maxMaxBufferLength: mode === 'live' ? 10 : 36,
-            liveSyncDurationCount: mode === 'live' ? 2 : 4,
-            liveMaxLatencyDurationCount: mode === 'live' ? 5 : 8,
+            lowLatencyMode: false,
+            backBufferLength: 45,
+            maxBufferLength: 18,
+            maxMaxBufferLength: 36,
+            liveSyncDurationCount: 4,
+            liveMaxLatencyDurationCount: 8,
             fragLoadingMaxRetry: 5,
             manifestLoadingMaxRetry: 4,
             enableWorker: true,
@@ -293,10 +285,10 @@ export function usePlayback() {
             video.removeAttribute('src');
             video.load();
         };
-    }, [isHlsReady, mode, resolvedHlsUrl, shouldUseHls]);
+    }, [isHlsReady, resolvedHlsUrl, shouldUseHls]);
 
     useEffect(() => {
-        if (mode !== 'playback' || playbackRenderMode !== 'hls') {
+        if (playbackRenderMode !== 'hls') {
             return undefined;
         }
 
@@ -313,7 +305,7 @@ export function usePlayback() {
         return () => {
             clearTimeout(timer);
         };
-    }, [mode, playbackRenderMode, streamSources]);
+    }, [playbackRenderMode, streamSources]);
 
     const updateField = (key, value) => {
         setForm((previous) => ({
@@ -335,30 +327,23 @@ export function usePlayback() {
             throw new Error('Channel aktif tidak ditemukan. Pilih channel yang tersedia.');
         }
 
-        if (mode === 'playback') {
-            const startDate = new Date(form.starttime);
-            const endDate = new Date(form.endtime);
-            const nowDate = new Date();
-            if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate <= startDate) {
-                throw new Error('Pastikan rentang waktu playback valid.');
-            }
-            if (startDate > nowDate || endDate > nowDate) {
-                throw new Error('Waktu playback tidak boleh melebihi waktu saat ini.');
-            }
+        const startDate = new Date(form.starttime);
+        const endDate = new Date(form.endtime);
+        const nowDate = new Date();
+        if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate <= startDate) {
+            throw new Error('Pastikan rentang waktu playback valid.');
+        }
+        if (startDate > nowDate || endDate > nowDate) {
+            throw new Error('Waktu playback tidak boleh melebihi waktu saat ini.');
         }
 
-        return mode === 'live'
-            ? playbackService.buildLiveStreamSources({
-                channel: form.channel,
-                subtype: form.subtype,
-            })
-            : playbackService.buildPlaybackStreamSources({
-                channel: form.channel,
-                subtype: form.subtype,
-                starttime: form.starttime,
-                endtime: form.endtime,
-            });
-    }, [channels, form.channel, form.endtime, form.starttime, form.subtype, mode]);
+        return playbackService.buildPlaybackStreamSources({
+            channel: form.channel,
+            subtype: form.subtype,
+            starttime: form.starttime,
+            endtime: form.endtime,
+        });
+    }, [channels, form.channel, form.endtime, form.starttime, form.subtype]);
 
     const readGo2rtcDiagnostic = useCallback(async (streamName) => {
         if (!streamName) {
@@ -479,15 +464,14 @@ export function usePlayback() {
                 }
 
                 const shouldProbeHls = Boolean(candidateSources.hlsUrl) && (
-                    (candidateSources.mode === 'playback' && (playbackRenderMode === 'hls' || !candidateSources.playbackPlayerUrl))
-                    || (candidateSources.mode === 'live' && (liveRenderMode === 'hls' || !candidateSources.livePlayerUrl))
+                    candidateSources.mode === 'playback' && (playbackRenderMode === 'hls' || !candidateSources.playbackPlayerUrl)
                 );
                 let candidateHlsReady = Boolean(candidateSources.hlsUrl) && !shouldProbeHls;
                 let candidateManifestRaw = '';
                 if (shouldProbeHls) {
                     candidateHlsReady = await playbackService.waitForHlsReady({
                         hlsUrl: candidateSources.hlsUrl,
-                        timeoutMs: candidateSources.mode === 'playback' ? 9000 : 5000,
+                        timeoutMs: 9000,
                         intervalMs: 450,
                     });
                 }
@@ -571,7 +555,7 @@ export function usePlayback() {
         } finally {
             setIsSubmitting(false);
         }
-    }, [buildSources, liveRenderMode, playbackRenderMode, readGo2rtcDiagnostic]);
+    }, [buildSources, playbackRenderMode, readGo2rtcDiagnostic]);
 
     useEffect(() => {
         if (!form.selectedDate) {
@@ -601,20 +585,8 @@ export function usePlayback() {
         }));
     }, [form.selectedDate]);
 
-    useEffect(() => {
-        if (mode === 'playback') {
-            return;
-        }
-
-        setRecordings([]);
-        setRecordingError('');
-        setSelectedRecordingKey('');
-    }, [mode]);
-
     return {
         videoRef,
-        mode,
-        setMode,
         form,
         updateField,
         selectedChannel,
@@ -629,8 +601,6 @@ export function usePlayback() {
         shouldUseIframe,
         iframeUrl,
         activeTransportLabel,
-        liveRenderMode,
-        setLiveRenderMode,
         playbackRenderMode,
         setPlaybackRenderMode,
         recordings,

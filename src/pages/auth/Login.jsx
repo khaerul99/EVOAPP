@@ -10,6 +10,7 @@ const Login = () => {
         showPassword,
         isLoading,
         loadingMessage,
+        lockoutRemainingSec,
         error,
         setUsername,
         setPassword,
@@ -94,11 +95,13 @@ const Login = () => {
 
                         <button
                             type="submit"
-                            disabled={isLoading}
+                            disabled={isLoading || lockoutRemainingSec > 0}
                             className="btn-navy w-full shadow-lg disabled:opacity-50 flex items-center justify-center space-x-2"
                         >
                             {isLoading ? (
                                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            ) : lockoutRemainingSec > 0 ? (
+                                <span>Tunggu {lockoutRemainingSec} detik</span>
                             ) : (
                                 <span>Masuk ke Sistem</span>
                             )}
