@@ -430,7 +430,7 @@ export const playbackService = {
         registerUrl.searchParams.set("src", rtspUrl);
 
         const requestPromise = fetch(registerUrl.toString(), {
-            method: "PUT",
+            method: "PATCH",
         })
             .then(async (response) => {
                 if (!response.ok) {
