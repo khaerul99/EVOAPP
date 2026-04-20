@@ -6,6 +6,7 @@ import DashboardHome from './pages/dashboard/DashboardHome'
 import CameraManagement from './pages/management/camera/CameraManagement'
 import Reports from './pages/reports/Reports'
 import FaceManagement from './pages/management/face/FaceManagement'
+import LiveMonitoring from './pages/management/live/LiveMonitoring'
 import Playback from './pages/management/playback/Playback'
 import SystemSettings from './pages/settings/SystemSettings'
 import ProtectedRoute from './middleware/auth/ProtectedRoute'
@@ -48,6 +49,10 @@ const routes = createBrowserRouter([
           {
             path: "users",
             element: <UserManagement />
+          },
+          {
+            path: "live",
+            element: <LiveMonitoring />
           },
           {
             path: "playback",

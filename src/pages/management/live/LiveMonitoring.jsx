@@ -1,10 +1,12 @@
-import React from 'react';
-import { Calendar, Clock3, Loader2, PlayCircle, Radio, Search, Signal } from 'lucide-react';
-import { formatRecordingDuration, formatRecordingLabel, usePlayback } from '../../../hooks/playback/usePlayback';
+import React, { useEffect } from 'react';
+import { Loader2, PlayCircle, Radio, Search, Signal } from 'lucide-react';
+import { usePlayback } from '../../../hooks/playback/usePlayback';
 
-const Playback = () => {
+const LiveMonitoring = () => {
     const {
         videoRef,
+        mode,
+        setMode,
         form,
         updateField,
         selectedChannel,
@@ -19,19 +21,18 @@ const Playback = () => {
         shouldUseIframe,
         iframeUrl,
         activeTransportLabel,
-        playbackRenderMode,
-        setPlaybackRenderMode,
-        recordings,
-        isLoadingRecordings,
-        recordingError,
-        selectedRecordingKey,
-        setSelectedRecordingKey,
+        liveRenderMode,
+        setLiveRenderMode,
         manifestCodecs,
         go2rtcDiagnostic,
-        handleFindRecordings,
-        applyRecordingWindow,
         handleStartStream,
     } = usePlayback();
+
+    useEffect(() => {
+        if (mode !== 'live') {
+            setMode('live');
+        }
+    }, [mode, setMode]);
 
     return (
         <div className="space-y-6 duration-500 animate-in fade-in">
@@ -41,10 +42,22 @@ const Playback = () => {
                 <div className="relative flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between md:p-8">
                     <div>
                         <p className="text-[10px] font-black uppercase tracking-[0.24em] text-navy/45">Stream Console</p>
-                        <h2 className="mt-2 text-2xl font-black tracking-tight text-navy md:text-3xl">Playback Monitoring</h2>
+                        <h2 className="mt-2 text-2xl font-black tracking-tight text-navy md:text-3xl">Live Monitoring</h2>
+                    </div>
+                    <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                        <Radio size={14} />
+                        Live Only
                     </div>
                 </div>
             </div>
+
+            {(error || playerError) && (
+                <div className="p-4 rounded-2xl border bg-white border-navy/10 text-navy/70 shadow-sm">
+                    <p className="text-xs font-semibold tracking-[0.2em] uppercase">
+                        {error || playerError}
+                    </p>
+                </div>
+            )}
 
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
                 <section className="space-y-6 xl:col-span-3">
@@ -60,9 +73,9 @@ const Playback = () => {
                                 className="object-cover w-full h-full"
                             />
                         ) : shouldUseIframe ? (
-                                <iframe
+                            <iframe
                                 src={iframeUrl}
-                                title="Playback Stream Player"
+                                title="Live Stream Player"
                                 className="w-full h-full border-0"
                                 allow="autoplay; fullscreen; encrypted-media"
                             />
@@ -79,10 +92,8 @@ const Playback = () => {
                         )}
 
                         <div className="absolute flex items-center gap-2 px-4 py-2 border top-5 left-5 rounded-xl border-white/20 bg-white/10 backdrop-blur-xl">
-                            <Radio size={13} className="text-emerald-300" />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-white/85">
-                                Playback Mode
-                            </span>
+                            <Radio size={13} className="text-cyan-300" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-white/85">Live Mode</span>
                         </div>
 
                         {streamSources && (
@@ -109,73 +120,13 @@ const Playback = () => {
                             <p className="mt-2 text-sm font-bold text-navy">{activeTransportLabel}</p>
                         </div>
                     </div>
-
-                    <div className="p-4 bg-white border rounded-2xl border-navy/10 md:p-5">
-                        <div className="flex items-center justify-between gap-3">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">Daftar Rekaman</p>
-                            <button
-                                type="button"
-                                onClick={handleFindRecordings}
-                                disabled={isLoadingRecordings || isSubmitting}
-                                className="rounded-lg border border-navy/15 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-navy/70 transition-all hover:bg-navy/5 disabled:opacity-60"
-                            >
-                                Refresh
-                            </button>
-                        </div>
-
-                        {recordingError && (
-                            <div className="p-3 mt-3 border rounded-xl border-amber-200 bg-amber-50">
-                                <p className="text-[11px] font-bold text-amber-700">{recordingError}</p>
-                            </div>
-                        )}
-
-                        {isLoadingRecordings && (
-                            <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] font-bold text-slate-700">
-                                <Loader2 size={14} className="animate-spin" />
-                                Memuat daftar rekaman...
-                            </div>
-                        )}
-
-                        {!isLoadingRecordings && recordings.length > 0 && (
-                            <div className="grid grid-cols-1 gap-3 mt-3 md:grid-cols-2">
-                                {recordings.map((record, index) => {
-                                    const key = `${record?.beginTime || ''}|${record?.endTime || ''}|${record?.filePath || ''}|${index}`;
-                                    const active = selectedRecordingKey === key;
-                                    return (
-                                        <button
-                                            key={key}
-                                            type="button"
-                                            onClick={() => {
-                                                setSelectedRecordingKey(key);
-                                                applyRecordingWindow(record);
-                                            }}
-                                            className={`rounded-xl border p-3 text-left transition-all ${active ? 'border-sky-500 bg-sky-50' : 'border-navy/10 bg-background hover:border-navy/30'}`}
-                                        >
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">Rekaman #{index + 1}</p>
-                                            <p className="mt-1 text-[12px] font-bold text-navy">{formatRecordingLabel(record.beginTime)}</p>
-                                            <p className="text-[12px] font-bold text-navy">sampai {formatRecordingLabel(record.endTime)}</p>
-                                            <p className="mt-1 text-[10px] font-mono text-navy/60">Durasi: {formatRecordingDuration(record.beginTime, record.endTime)}</p>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
                 </section>
 
                 <aside className="space-y-6 xl:col-span-2">
                     <div className="h-full p-6 bg-white border shadow-sm rounded-3xl border-navy/10">
-                        <h3 className="mb-5 text-xs font-black tracking-widest uppercase text-navy/45">Stream Controls</h3>
+                        <h3 className="mb-5 text-xs font-black tracking-widest uppercase text-navy/45">Live Controls</h3>
 
                         <div className="space-y-3">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-navy/45">Date</label>
-                            <input
-                                type="date"
-                                value={form.selectedDate}
-                                onChange={(event) => updateField('selectedDate', event.target.value)}
-                                className="w-full px-4 py-3 text-xs font-bold transition-all bg-white border outline-none rounded-xl border-navy/15 focus:border-navy/25"
-                            />
-
                             <label className="text-[10px] font-black uppercase tracking-widest text-navy/45">Channel</label>
                             <select
                                 value={form.channel}
@@ -208,49 +159,30 @@ const Playback = () => {
                                 </button>
                             </div>
 
-                            <label className="text-[10px] font-black uppercase tracking-widest text-navy/45">Playback Render</label>
-                            <div className="grid grid-cols-2 gap-2">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-navy/45">Live Render</label>
+                            <div className="grid grid-cols-3 gap-2">
                                 <button
                                     type="button"
-                                    onClick={() => setPlaybackRenderMode('player')}
-                                    className={`rounded-xl border px-2 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${playbackRenderMode === 'player' ? 'border-sky-600 bg-sky-600 text-white' : 'border-navy/15 bg-white text-navy/60'}`}
+                                    onClick={() => setLiveRenderMode('auto')}
+                                    className={`rounded-xl border px-2 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${liveRenderMode === 'auto' ? 'border-navy bg-navy text-white' : 'border-navy/15 bg-white text-navy/60'}`}
                                 >
-                                    Player
+                                    Auto
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => setPlaybackRenderMode('hls')}
-                                    className={`rounded-xl border px-2 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${playbackRenderMode === 'hls' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-navy/15 bg-white text-navy/60'}`}
+                                    onClick={() => setLiveRenderMode('webrtc')}
+                                    className={`rounded-xl border px-2 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${liveRenderMode === 'webrtc' ? 'border-sky-600 bg-sky-600 text-white' : 'border-navy/15 bg-white text-navy/60'}`}
+                                >
+                                    WebRTC
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setLiveRenderMode('hls')}
+                                    className={`rounded-xl border px-2 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${liveRenderMode === 'hls' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-navy/15 bg-white text-navy/60'}`}
                                 >
                                     HLS
                                 </button>
                             </div>
-
-                            <label className="text-[10px] font-black uppercase tracking-widest text-navy/45">Start Time</label>
-                            <input
-                                type="datetime-local"
-                                value={form.starttime}
-                                onChange={(event) => updateField('starttime', event.target.value)}
-                                className="w-full px-4 py-3 text-xs font-bold transition-all bg-white border outline-none rounded-xl border-navy/15 focus:border-navy/25"
-                            />
-
-                            <label className="text-[10px] font-black uppercase tracking-widest text-navy/45">End Time</label>
-                            <input
-                                type="datetime-local"
-                                value={form.endtime}
-                                onChange={(event) => updateField('endtime', event.target.value)}
-                                className="w-full px-4 py-3 text-xs font-bold transition-all bg-white border outline-none rounded-xl border-navy/15 focus:border-navy/25"
-                            />
-
-                            <button
-                                type="button"
-                                onClick={handleFindRecordings}
-                                disabled={isLoadingRecordings || isSubmitting}
-                                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-sky-600 bg-sky-50 py-3 text-[10px] font-black uppercase tracking-widest text-sky-700 transition-all hover:bg-sky-100 disabled:opacity-60"
-                            >
-                                {isLoadingRecordings ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-                                Cari Rekaman
-                            </button>
                         </div>
 
                         <button
@@ -260,7 +192,7 @@ const Playback = () => {
                             className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-navy bg-navy py-4 text-[10px] font-black uppercase tracking-widest text-white transition-all hover:bg-navy/90 disabled:opacity-60"
                         >
                             {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-                            Start Playback
+                            Start Live Stream
                         </button>
 
                         <div className="mt-5 space-y-3">
@@ -282,10 +214,10 @@ const Playback = () => {
                                 </div>
                             )}
 
-                            {activeSourceInfo?.playbackPlayerUrl && (
-                                <div className="p-3 border border-indigo-200 rounded-xl bg-indigo-50/80">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">Playback Player URL</p>
-                                    <p className="mt-1 break-all font-mono text-[11px] text-indigo-900">{activeSourceInfo.playbackPlayerUrl}</p>
+                            {activeSourceInfo?.livePlayerUrl && (
+                                <div className="p-3 border rounded-xl border-sky-200 bg-sky-50/80">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-sky-700">Live Player URL</p>
+                                    <p className="mt-1 break-all font-mono text-[11px] text-sky-900">{activeSourceInfo.livePlayerUrl}</p>
                                 </div>
                             )}
 
@@ -301,12 +233,6 @@ const Playback = () => {
                                     <p className="text-[11px] font-bold text-amber-700">{playerError}</p>
                                 </div>
                             )}
-
-                            {error && (
-                                <div className="p-3 border rounded-xl border-danger/20 bg-danger/10">
-                                    <p className="text-[11px] font-bold text-danger">{error}</p>
-                                </div>
-                            )}
                         </div>
                     </div>
                 </aside>
@@ -315,4 +241,4 @@ const Playback = () => {
     );
 };
 
-export default Playback;
+export default LiveMonitoring;

@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cameraService } from '../../services/camera/camera.service';
 
-const DIGEST_RETRY_DELAY_MS = 2500;
-
 const INITIAL_NEW_CAMERA = {
     type: 'oneByOne',
     channelMode: 'auto',
@@ -64,7 +62,7 @@ export function useCameraManagement() {
             setIsDigestRetrying(false);
         } catch (requestError) {
             const statusCode = requestError?.response?.status;
-            const isDigestInProgress = statusCode === 401 || statusCode === 403;
+            const isDigestInProgress = statusCode === 401;
 
             if (isDigestInProgress) {
                 setIsDigestRetrying(true);
@@ -74,16 +72,21 @@ export function useCameraManagement() {
 
             setCameras([]);
             setIsDigestRetrying(false);
-            setError('Gagal mengambil data kamera dari perangkat.');
+            if (statusCode === 403) {
+                setError('Akses ditolak (403) untuk data kamera pada akun ini.');
+            } else {
+                setError('Gagal mengambil data kamera dari perangkat.');
+            }
             return 'error';
         }
 
         return 'ok';
     }, []);
 
+    
+    
     useEffect(() => {
         let cancelled = false;
-        let retryTimer = null;
 
         const fetchChannels = async () => {
             const status = await loadCameras();
@@ -93,9 +96,7 @@ export function useCameraManagement() {
 
             if (status === 'digest') {
                 setLoading(true);
-                retryTimer = setTimeout(() => {
-                    fetchChannels();
-                }, DIGEST_RETRY_DELAY_MS);
+                setLoading(false);
                 return;
             }
 
@@ -107,11 +108,9 @@ export function useCameraManagement() {
 
         return () => {
             cancelled = true;
-            if (retryTimer) {
-                clearTimeout(retryTimer);
-            }
         };
     }, [loadCameras]);
+    
 
     useEffect(() => {
         setCurrentPage(1);

@@ -43,6 +43,11 @@ function parseCameraDateTime(value) {
     return null;
 }
 
+function isRtspAuthFailure(message) {
+    const normalized = String(message || '').toLowerCase();
+    return /wrong\s*user\/?pass|wrong\s*password|unauthorized|forbidden|auth(?:entication)?\s*fail|\b401\b|\b403\b/.test(normalized);
+}
+
 export function formatRecordingLabel(value) {
     const parsed = parseCameraDateTime(value);
     if (!parsed) {
@@ -168,11 +173,13 @@ export function usePlayback() {
             }
         };
 
+        // DISABLED: Prevent automatic playback channel loading during auth testing
         loadChannels();
 
         return () => {
             cancelled = true;
         };
+        // Uncomment above to enable channel loading
     }, []);
 
     const selectedChannel = useMemo(
@@ -460,10 +467,16 @@ export function usePlayback() {
                 };
                 setLastAttemptSources(candidateSources);
 
-                await playbackService.ensureGo2rtcStream({
-                    streamName: candidateSources.streamName,
-                    rtspUrl: candidateRtspUrl,
-                });
+                try {
+                    await playbackService.ensureGo2rtcStream({
+                        streamName: candidateSources.streamName,
+                        rtspUrl: candidateRtspUrl,
+                    });
+                } catch (registrationError) {
+                    if (!selectedDiagnostic) {
+                        selectedDiagnostic = String(registrationError?.message || registrationError || '');
+                    }
+                }
 
                 const shouldProbeHls = Boolean(candidateSources.hlsUrl) && (
                     (candidateSources.mode === 'playback' && (playbackRenderMode === 'hls' || !candidateSources.playbackPlayerUrl))
@@ -510,6 +523,12 @@ export function usePlayback() {
                 const hasDescribeFailure = /wrong response on describe|401|403|404|no such file|not found/i.test(
                     String(candidateDiagnostic || '').toLowerCase(),
                 );
+                const hasAuthFailure = isRtspAuthFailure(candidateDiagnostic);
+
+                if (hasAuthFailure) {
+                    throw new Error('Autentikasi RTSP ditolak (401/403). Periksa VITE_RTSP_USERNAME dan VITE_RTSP_PASSWORD atau stream statis di go2rtc.yaml agar akun tidak terkunci.');
+                }
+
                 const shouldUseCandidate = shouldProbeHls
                     ? candidateHlsReady
                     : !hasDescribeFailure;
