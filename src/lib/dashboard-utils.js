@@ -49,8 +49,8 @@ function mapLogType(action) {
     }
 }
 
-function mapLogCamera(action) {
-    const normalized = String(action || '').toLowerCase();
+function mapLogCamera(log) {
+    const normalized = String(log?.action || '').toLowerCase();
 
     switch (normalized) {
         case 'login_success':
@@ -60,7 +60,7 @@ function mapLogCamera(action) {
             return 'Session Control';
         case 'settings_saved':
         case 'settings_reset':
-            return 'System Settings';
+            return 'Camera Setting';
         default:
             return 'System';
     }
@@ -102,7 +102,7 @@ export function buildDashboardEvents(cameras, securityLogs) {
             id: log.id || `log-${index}`,
             timestamp,
             type: mapLogType(log.action),
-            camera: mapLogCamera(log.action),
+            camera: mapLogCamera(log),
             time: formatTime(timestamp),
             detail: log.message || log.action || 'Security event',
             severity: mapLogSeverity(log.level),

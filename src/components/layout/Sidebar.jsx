@@ -48,7 +48,7 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
             items: [
                 { label: "Live Monitoring", path: "/dashboard/live" },
                 { label: "Playback", path: "/dashboard/playback" },
-                { label: "System Settings", path: "/dashboard/settings" },
+                { label: "Camera Setting", path: "/dashboard/camera-setting" },
             ]
         },
         {

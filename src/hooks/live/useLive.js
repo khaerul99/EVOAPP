@@ -37,6 +37,8 @@ function createInitialLiveForm() {
 
 export function useLive() {
     const videoRef = useRef(null);
+    const liveContainerRef = useRef(null);
+    const autoPlaySignatureRef = useRef('');
 
     const [channels, setChannels] = useState([]);
     const [isLoadingChannels, setIsLoadingChannels] = useState(true);
@@ -52,6 +54,7 @@ export function useLive() {
     const [form, setForm] = useState(() => createInitialLiveForm());
     const [authCooldownEndsAt, setAuthCooldownEndsAt] = useState(0);
     const [authCooldownRemainingSec, setAuthCooldownRemainingSec] = useState(0);
+    const [isFullscreen, setIsFullscreen] = useState(false);
 
     useEffect(() => {
         if (authCooldownEndsAt <= 0) {
@@ -208,7 +211,7 @@ export function useLive() {
                 return;
             }
 
-            setPlayerError('Gagal memuat stream HLS. Coba klik Start Stream lagi.');
+            setPlayerError('Gagal memuat stream HLS. Sistem akan mencoba lagi saat konfigurasi channel berubah.');
         });
 
         return () => {
@@ -384,7 +387,7 @@ export function useLive() {
             }
 
             if (selectedSources.hlsUrl && !selectedHlsReady) {
-                setPlayerError('Playlist live belum siap. Coba klik Start Stream sekali lagi dalam 2-3 detik.');
+                setPlayerError('Playlist live belum siap. Menunggu sinkronisasi stream 2-3 detik.');
             }
             if (/(^|,)\s*(hvc1|hev1)\b/i.test(String(selectedCodecs || ''))) {
                 setPlayerError('Codec stream terdeteksi H.265/HEVC. Jika video tetap hitam di browser, pakai VLC dengan RTSP URL atau aktifkan transcoding ke H.264.');
@@ -397,8 +400,62 @@ export function useLive() {
         }
     }, [authCooldownEndsAt, buildSources, liveRenderMode, readGo2rtcDiagnostic]);
 
+    useEffect(() => {
+        if (isLoadingChannels || isSubmitting) {
+            return;
+        }
+
+        if (!form.channel) {
+            return;
+        }
+
+        if (authCooldownEndsAt > Date.now()) {
+            return;
+        }
+
+        const signature = `${form.channel}|${form.subtype}|${liveRenderMode}`;
+        if (autoPlaySignatureRef.current === signature) {
+            return;
+        }
+
+        autoPlaySignatureRef.current = signature;
+        handleStartStream();
+    }, [
+        authCooldownEndsAt,
+        form.channel,
+        form.subtype,
+        handleStartStream,
+        isLoadingChannels,
+        isSubmitting,
+        liveRenderMode,
+    ]);
+
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsFullscreen(!!document.fullscreenElement);
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
+    const handleToggleFullscreen = useCallback(async () => {
+        try {
+            if (!document.fullscreenElement) {
+                if (liveContainerRef.current?.requestFullscreen) {
+                    await liveContainerRef.current.requestFullscreen();
+                }
+            } else if (document.exitFullscreen) {
+                await document.exitFullscreen();
+            }
+        } catch {
+            // Ignore fullscreen API errors.
+        }
+    }, []);
+
     return {
         videoRef,
+        liveContainerRef,
         form,
         updateField,
         selectedChannel,
@@ -418,6 +475,8 @@ export function useLive() {
         authCooldownRemainingSec,
         manifestCodecs,
         go2rtcDiagnostic,
+        isFullscreen,
+        handleToggleFullscreen,
         handleStartStream,
     };
 }

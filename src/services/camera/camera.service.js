@@ -40,9 +40,9 @@ function parseChannelTitles(rawData) {
 
 function buildConfigManagerQuery(params) {
     return Object.entries(params || {})
-        .filter(([, value]) => value !== undefined && value !== null && value !== '')
+        .filter(([, value]) => value !== undefined && value !== null && value !== "")
         .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
-        .join('&');
+        .join("&");
 }
 
 function parseRemoteDevices(rawData) {
@@ -211,16 +211,17 @@ export const cameraService = {
 
         return toCameraRows(channelTitles, remoteDevices);
     },
+
     addRemoteDevice: async ({
         channelIndex = 0,
         ipAddress,
-        port = '37777',
-        username = 'admin',
-        password = 'admin123',
-        protocol = 'Private',
+        port = "37777",
+        username = "admin",
+        password = "admin123",
+        protocol = "Private",
     }) => {
         const query = buildConfigManagerQuery({
-            action: 'setConfig',
+            action: "setConfig",
             [`RemoteDevice[${channelIndex}].Address`]: ipAddress,
             [`RemoteDevice[${channelIndex}].Port`]: port,
             [`RemoteDevice[${channelIndex}].Username`]: username,

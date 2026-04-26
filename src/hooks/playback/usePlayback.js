@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import Hls from 'hls.js';
 import { cameraService } from '../../services/camera/camera.service';
 import { playbackService } from '../../services/playback/playback.service';
@@ -116,6 +117,9 @@ function createInitialForm() {
 
 export function usePlayback() {
     const videoRef = useRef(null);
+    const location = useLocation();
+    const didApplyQueryRef = useRef(false);
+    const pendingAutoStartRef = useRef(false);
 
     const [channels, setChannels] = useState([]);
     const [isLoadingChannels, setIsLoadingChannels] = useState(true);
@@ -556,6 +560,43 @@ export function usePlayback() {
             setIsSubmitting(false);
         }
     }, [buildSources, playbackRenderMode, readGo2rtcDiagnostic]);
+
+    useEffect(() => {
+        if (didApplyQueryRef.current) {
+            return;
+        }
+
+        const searchParams = new URLSearchParams(location.search || '');
+        const channel = String(searchParams.get('channel') || '').trim();
+        const subtype = String(searchParams.get('subtype') || '').trim();
+        const starttime = String(searchParams.get('starttime') || '').trim();
+        const endtime = String(searchParams.get('endtime') || '').trim();
+        const autoplay = String(searchParams.get('autoplay') || '').trim();
+
+        if (!channel && !starttime && !endtime) {
+            return;
+        }
+
+        didApplyQueryRef.current = true;
+        setForm((previous) => ({
+            ...previous,
+            ...(channel ? { channel } : {}),
+            ...(subtype ? { subtype } : {}),
+            ...(starttime ? { starttime } : {}),
+            ...(endtime ? { endtime } : {}),
+        }));
+
+        pendingAutoStartRef.current = autoplay === '1' || autoplay.toLowerCase() === 'true';
+    }, [location.search]);
+
+    useEffect(() => {
+        if (!pendingAutoStartRef.current) {
+            return;
+        }
+
+        pendingAutoStartRef.current = false;
+        handleStartStream().catch(() => {});
+    }, [handleStartStream, form.channel, form.endtime, form.starttime, form.subtype]);
 
     useEffect(() => {
         if (!form.selectedDate) {

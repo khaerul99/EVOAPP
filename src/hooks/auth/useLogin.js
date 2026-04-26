@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cancelLoginRequest, loginWithDigest } from '../../services/auth/auth.service'
 import { authStore } from '../../stores/authSlice'
+import { useStore } from '../../stores/useStore'
 import { REMEMBER_KEY, clearSession, getRemainingLogoutCooldownMs, hasSession, saveSession } from '../../lib/session-helper'
 import { addSecurityLog, getSecurityLogs } from '../../lib/security-log'
 
@@ -19,7 +20,7 @@ function extractLockSeconds(errorMessage) {
 }
 
 export function useLogin() {
-    const navigate = useNavigate()
+    const navigate = useNavigate() 
 
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
@@ -114,6 +115,9 @@ export function useLogin() {
                 challenge: loginResult?.challenge || null,
                 rtspPassword: password,
             })
+
+            setLoadingMessage('Menyiapkan data kamera...')
+            await useStore.getState().initializeAfterLogin()
 
             if (rememberMe) {
                 localStorage.setItem(REMEMBER_KEY, username)

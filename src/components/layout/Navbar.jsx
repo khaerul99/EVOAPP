@@ -236,12 +236,12 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
                     <button
                       onClick={() => {
                         setShowAccountMenu(false);
-                        navigate("/dashboard/system-settings");
+                        navigate("/dashboard/camera-setting");
                       }}
                       className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl"
                     >
                       <Settings size={16} />
-                      <span>System Settings</span>
+                      <span>Camera Setting</span>
                     </button>
                     <button
                       onClick={() => {

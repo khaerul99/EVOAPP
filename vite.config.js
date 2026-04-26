@@ -8,9 +8,12 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const cameraTarget = env.VITE_CAMERA_URL || 'http://103.194.172.70:8080'
   const hlsGatewayTarget = env.VITE_HLS_GATEWAY_URL || 'http://localhost:1984'
-  const cameraAgent = cameraTarget.startsWith('https://')
+  const snapshotAgent = cameraTarget.startsWith('https://')
     ? new https.Agent({ keepAlive: false })
     : new http.Agent({ keepAlive: false })
+  const cameraAgent = cameraTarget.startsWith('https://')
+    ? new https.Agent({ keepAlive: true })
+    : new http.Agent({ keepAlive: true })
 
   const attachDigestHeaderRewrite = (proxy) => {
     proxy.on('error', (err, req, res) => {
@@ -22,10 +25,6 @@ export default defineConfig(({ mode }) => {
         }
         res.end(JSON.stringify({ message: 'Camera proxy failed', detail: message }))
       }
-    })
-
-    proxy.on('proxyReq', (proxyReq) => {
-      proxyReq.setHeader('Connection', 'close')
     })
 
     proxy.on('proxyRes', (proxyRes) => {
@@ -42,11 +41,21 @@ export default defineConfig(({ mode }) => {
     base: '/',
     server: {
       proxy: {
+        '/cgi-bin/snapshot.cgi': {
+          target: cameraTarget,
+          changeOrigin: true,
+          secure: false,
+          agent: snapshotAgent,
+          // Some camera firmwares emit non-strict HTTP framing on snapshot endpoint.
+          insecureHTTPParser: true,
+          configure: attachDigestHeaderRewrite,
+        },
         '/cgi-bin': {
           target: cameraTarget,
           changeOrigin: true,
           secure: false,
           agent: cameraAgent,
+          insecureHTTPParser: true,
           configure: attachDigestHeaderRewrite,
         },
         '/RPC2': {
@@ -54,6 +63,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false,
           agent: cameraAgent,
+          insecureHTTPParser: true,
           configure: attachDigestHeaderRewrite,
         },
         '/cam': {
@@ -61,6 +71,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false,
           agent: cameraAgent,
+          insecureHTTPParser: true,
           configure: attachDigestHeaderRewrite,
         },
         '/go2rtc': {
