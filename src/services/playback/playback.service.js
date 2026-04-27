@@ -1,4 +1,4 @@
-import ApiClient from "../../lib/api";
+﻿import ApiClient from "../../lib/api";
 import { authStore } from "../../stores/authSlice";
 
 function formatPlaybackTimestamp(value) {
@@ -425,23 +425,50 @@ export const playbackService = {
         }
 
         const registerPath = import.meta.env.VITE_GO2RTC_STREAM_REGISTER_PATH || "/go2rtc/api/streams";
-        const registerUrl = new URL(registerPath, window.location.origin);
-        registerUrl.searchParams.set("name", streamName);
-        registerUrl.searchParams.set("src", rtspUrl);
+        const buildRegisterUrl = (nameParam = "name") => {
+            const registerUrl = new URL(registerPath, window.location.origin);
+            registerUrl.searchParams.set(nameParam, streamName);
+            registerUrl.searchParams.set("src", rtspUrl);
+            return registerUrl.toString();
+        };
 
-        const requestPromise = fetch(registerUrl.toString(), {
-            method: "PATCH",
-        })
-            .then(async (response) => {
-                if (!response.ok) {
-                    const detail = await response.text().catch(() => "");
-                    failedRegistrationCooldown.set(inFlightKey, Date.now() + REGISTER_RETRY_COOLDOWN_MS);
-                    throw new Error(detail || `Register stream gagal (${response.status})`);
+        const registerAttempts = [
+            { method: "PATCH", url: buildRegisterUrl("name") },
+            { method: "POST", url: buildRegisterUrl("name") },
+            { method: "PUT", url: buildRegisterUrl("name") },
+            // Some go2rtc builds use `dst` instead of `name`.
+            { method: "PATCH", url: buildRegisterUrl("dst") },
+            { method: "POST", url: buildRegisterUrl("dst") },
+            { method: "PUT", url: buildRegisterUrl("dst") },
+        ];
+
+        const requestPromise = (async () => {
+            const failures = [];
+
+            for (const attempt of registerAttempts) {
+                const response = await fetch(attempt.url, {
+                    method: attempt.method,
+                }).catch((error) => ({
+                    ok: false,
+                    status: 0,
+                    __error: error,
+                }));
+
+                if (response?.ok) {
+                    streamRegistrationCache.set(streamName, rtspUrl);
+                    failedRegistrationCooldown.delete(inFlightKey);
+                    return;
                 }
 
-                streamRegistrationCache.set(streamName, rtspUrl);
-                failedRegistrationCooldown.delete(inFlightKey);
-            })
+                const detail = response?.__error
+                    ? String(response.__error?.message || response.__error || "")
+                    : await response.text().catch(() => "");
+                failures.push(`${attempt.method}: ${detail || `HTTP ${Number(response?.status || 0)}`}`);
+            }
+
+            failedRegistrationCooldown.set(inFlightKey, Date.now() + REGISTER_RETRY_COOLDOWN_MS);
+            throw new Error(`Register stream gagal. Detail: ${failures.join(" | ")}`);
+        })()
             .finally(() => {
                 inFlightRegistration.delete(inFlightKey);
             });

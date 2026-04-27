@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { Loader2, Maximize2, Minimize2, Radio, Signal } from 'lucide-react';
 import { useLive } from '../../../hooks/live/useLive';
 
@@ -64,7 +64,7 @@ const LiveMonitoring = () => {
                             <video
                                 ref={videoRef}
                                 controls
-                                muted
+                                muted={true}
                                 autoPlay
                                 playsInline
                                 preload="metadata"
@@ -103,14 +103,7 @@ const LiveMonitoring = () => {
                             </button>
                         </div>
 
-                        {streamSources && (
-                            <div className="absolute bottom-5 right-5 max-w-[78%] rounded-xl border border-cyan-200/30 bg-cyan-500/20 px-3 py-2 backdrop-blur-md">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-cyan-100">Transport: {activeTransportLabel}</p>
-                                <p className="mt-1 text-[10px] text-white/85">
-                                    Jika layar masih hitam, tunggu 2-3 detik, stream akan retry otomatis.
-                                </p>
-                            </div>
-                        )}
+                       
                     </div>
 
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">

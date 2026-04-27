@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import { cameraService } from '../../services/camera/camera.service';
 import { liveService } from '../../services/live/live.service';
@@ -301,10 +301,16 @@ export function useLive() {
                 };
                 setLastAttemptSources(candidateSources);
 
-                await liveService.ensureGo2rtcStream({
-                    streamName: candidateSources.streamName,
-                    rtspUrl: candidateRtspUrl,
-                });
+                try {
+                    await liveService.ensureGo2rtcStream({
+                        streamName: candidateSources.streamName,
+                        rtspUrl: candidateRtspUrl,
+                    });
+                } catch (registrationError) {
+                    if (!selectedDiagnostic) {
+                        selectedDiagnostic = String(registrationError?.message || registrationError || '');
+                    }
+                }
 
                 const shouldProbeHls = Boolean(candidateSources.hlsUrl) && (liveRenderMode === 'hls' || !candidateSources.livePlayerUrl);
                 let candidateHlsReady = Boolean(candidateSources.hlsUrl) && !shouldProbeHls;

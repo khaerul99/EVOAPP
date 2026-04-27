@@ -1,4 +1,4 @@
-services:
+﻿services:
   go2rtc:
     image: alexxit/go2rtc:latest
     container_name: evosecure-go2rtc
