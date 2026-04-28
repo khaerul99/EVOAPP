@@ -116,21 +116,25 @@ export function useCameraManagement() {
         setCurrentPage(1);
     }, [searchTerm]);
 
-    const activeCameras = useMemo(() => {
-        return cameras.filter((camera) => camera.status === 'online' || 0);
-    }, [cameras]);
-
     const filteredCameras = useMemo(() => {
         const normalizedSearch = normalizeText(searchTerm);
-        return activeCameras.filter((camera) => {
+        return cameras.filter((camera) => {
+            const normalizedStatus = normalizeText(camera.status);
+            const shouldShowByStatus = normalizedStatus === 'online' || normalizedStatus === 'offline';
+            if (!shouldShowByStatus) {
+                return false;
+            }
+
             return normalizeText(camera.name).includes(normalizedSearch)
                 || normalizeText(camera.deviceName).includes(normalizedSearch)
                 || normalizeText(camera.ip).includes(normalizedSearch)
-                || normalizeText(camera.manufacture).includes(normalizedSearch);
+                || normalizeText(camera.manufacture).includes(normalizedSearch)
+                || normalizeText(camera.model).includes(normalizedSearch)
+                || normalizeText(camera.sn).includes(normalizedSearch);
         });
-    }, [activeCameras, searchTerm]);
+    }, [cameras, searchTerm]);
 
-    const itemsPerPage = 5;
+    const itemsPerPage = 10;
     const totalPages = Math.ceil(filteredCameras.length / itemsPerPage) || 1;
     const safeCurrentPage = Math.min(currentPage, totalPages);
     const paginatedCameras = filteredCameras.slice((safeCurrentPage - 1) * itemsPerPage, safeCurrentPage * itemsPerPage);
@@ -208,8 +212,8 @@ export function useCameraManagement() {
         isDigestRetrying,
         newCamera,
         setNewCamera,
-        activeCameras,
         filteredCameras,
+        itemsPerPage,
         totalPages,
         safeCurrentPage,
         paginatedCameras,
