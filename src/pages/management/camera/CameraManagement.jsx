@@ -27,6 +27,7 @@ const CameraManagement = () => {
         setNewCamera,
         paginatedCameras,
         filteredCameras,
+        itemsPerPage,
         totalPages,
         safeCurrentPage,
         handleAddSubmit,
@@ -90,45 +91,62 @@ const CameraManagement = () => {
                             <table className="w-full text-left border-collapse">
                                 <thead>
                                     <tr className="border-b-2 border-navy/5 text-[10px] font-black uppercase tracking-widest opacity-40">
-                                        <th className="pb-4 pr-6">ID</th>
-                                        <th className="pb-4">Status</th>
-                                        <th className="pb-4">Record</th>
-                                        <th className="pb-4">Device Name</th>
-                                        <th className="pb-4">Channel</th>
-                                        <th className="pb-4">IP Address</th>
-                                        <th className="pb-4 text-center">Port</th>
-                                        <th className="pb-4">Manufacture</th>
-                                        <th className="pb-4 text-right">Operation</th>
+                                        <th className="pb-4 pr-4"><input type="checkbox" className="w-3.5 h-3.5 rounded border-navy/20" /></th>
+                                        <th className="pb-4 pr-4">Channel No.</th>
+                                        <th className="pb-4 pr-4">Status</th>
+                                        <th className="pb-4 pr-4">Record Status</th>
+                                        <th className="pb-4 pr-4">Channel Name</th>
+                                        <th className="pb-4 pr-4">Address</th>
+                                        <th className="pb-4 pr-4">Registration No.</th>
+                                        <th className="pb-4 pr-4">Port</th>
+                                        <th className="pb-4 pr-4">Username</th>
+                                        <th className="pb-4 pr-4">Password</th>
+                                        <th className="pb-4 pr-4">Manufacturer</th>
+                                        <th className="pb-4 pr-4">Model</th>
+                                        <th className="pb-4 pr-4">SN</th>
+                                        <th className="pb-4 pr-4">Remote CH No.</th>
+                                        <th className="pb-4">Operation</th>
                                     </tr>
                                 </thead>
                                 <tbody className="text-xs font-bold divide-y divide-navy/5">
                                     {paginatedCameras.map((row) => (
-                                        <tr key={row.id} className="transition-colors group hover:bg-background">
-                                            <td className="py-5 pr-6 font-mono text-navy/30">#{row.id.toString().padStart(3, '0')}</td>
-                                            <td className="py-5">
-                                                <div className="flex items-center space-x-2">
-                                                    <div className={`w-2 h-2 rounded-full ${row.status === 'online' ? 'bg-success shadow-[0_0_8px_rgba(39,174,96,0.5)]' : 'bg-danger'} `} />
-                                                    <span className={`uppercase text-[9px] font-black ${row.status === 'online' ? 'text-success' : 'text-danger'}`}>{row.status}</span>
+                                        <tr key={row.id} className="transition-colors hover:bg-background">
+                                            <td className="py-4 pr-4"><input type="checkbox" className="w-3.5 h-3.5 rounded border-navy/20" /></td>
+                                            <td className="py-4 pr-4">{row.id}</td>
+                                            <td className="py-4 pr-4">
+                                                {row.status === 'online' ? (
+                                                    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-success/10">
+                                                        <div className="w-3 h-3 rounded-full bg-success" />
+                                                    </div>
+                                                ) : (
+                                                    <div className="relative flex items-center justify-center w-6 h-6 rounded-full cursor-pointer bg-warning/10 group">
+                                                        <AlertTriangle className="w-4 h-4 text-warning" />
+                                                        <div className="absolute bottom-full mb-2 w-max px-3 py-1.5 text-xs font-bold text-white bg-gray-800 rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-10">
+                                                            {row.statusMessage || row.status || 'Unknown error'}
+                                                            <div className="absolute w-0 h-0 -translate-x-1/2 border-t-4 left-1/2 top-full border-x-4 border-x-transparent border-t-gray-800" />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="py-4 pr-4">
+                                                <div className={`flex items-center justify-center w-6 h-6 rounded-full ${row.record ? 'bg-success/10' : 'bg-danger/10'}`}>
+                                                    <div className={`w-3 h-3 rounded-full ${row.record ? 'bg-success' : 'bg-danger'}`} />
                                                 </div>
                                             </td>
-                                            <td className="py-5">
-                                                <div className={`w-2 h-2 rounded-full ${row.record ? 'bg-success' : 'bg-danger/20'} `} />
-                                            </td>
-                                            <td className="py-5 text-navy">{row.deviceName || "-"}</td>
-                                            <td className="py-5 text-navy/70">{row.channelName || row.name}</td>
-                                            <td className="py-5 font-mono text-navy/60">{row.ip}</td>
-                                            <td className="py-5 text-center text-navy/60">{row.port || "-"}</td>
-                                            <td className="py-5">
-                                                <span className="px-2 py-1 bg-navy/5 rounded text-[10px] uppercase">{row.manufacture}</span>
-                                            </td>
-                                            <td className="py-5 text-right">
-                                                <div className="flex items-center justify-end space-x-4">
-                                                    <button onClick={() => setEditCamera(row)} className="p-2 transition-all border border-transparent rounded-lg text-navy/30 hover:text-navy hover:bg-white hover:border-navy/5">
-                                                        <Edit3 size={14} />
-                                                    </button>
-                                                    <button onClick={() => setDeleteCameraId(row.id)} className="p-2 transition-all border border-transparent rounded-lg text-danger/40 hover:text-danger hover:bg-danger/5 hover:border-danger/10">
-                                                        <Trash2 size={14} />
-                                                    </button>
+                                            <td className="py-4 pr-4">{row.channelName || '--'}</td>
+                                            <td className="py-4 pr-4">{row.ip || '--'}</td>
+                                            <td className="py-4 pr-4">{row.registrationNo || '--'}</td>
+                                            <td className="py-4 pr-4">{row.port || '--'}</td>
+                                            <td className="py-4 pr-4">{row.username || '--'}</td>
+                                            <td className="py-4 pr-4">{row.passwordMasked || '--'}</td>
+                                            <td className="py-4 pr-4">{row.manufacture || '--'}</td>
+                                            <td className="py-4 pr-4">{row.model || '--'}</td>
+                                            <td className="py-4 pr-4">{row.sn || '--'}</td>
+                                            <td className="py-4 pr-4">{row.remoteChannelNo || '--'}</td>
+                                            <td className="py-4">
+                                                <div className="flex items-center gap-3">
+                                                    <button onClick={() => setEditCamera(row)} className="text-[#1F6FFF] hover:underline">Edit</button>
+                                                    <button onClick={() => setDeleteCameraId(row.id)} className="text-[#FF4D4F] hover:underline">Delete</button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -143,8 +161,8 @@ const CameraManagement = () => {
                                     <div key={row.id} className="p-6 transition-all duration-300 bg-white border shadow-sm border-navy/5 rounded-3xl hover:shadow-xl hover:shadow-navy/5 group">
                                         <div className="flex items-start justify-between mb-4">
                                             <div className="flex items-center space-x-2 bg-background px-3 py-1.5 rounded-full border border-navy/5">
-                                                <div className={`w-2 h-2 rounded-full ${row.status === 'online' ? 'bg-success animate-pulse' : 'bg-danger'} `} />
-                                                <span className={`uppercase text-[9px] font-black tracking-widest ${row.status === 'online' ? 'text-success' : 'text-danger'}`}>{row.status}</span>
+                                                <div className={`w-2 h-2 rounded-full ${String(row.status).toLowerCase() === 'online' ? 'bg-success animate-pulse' : 'bg-danger'} `} />
+                                                <span className={`uppercase text-[9px] font-black tracking-widest ${String(row.status).toLowerCase() === 'online' ? 'text-success' : 'text-danger'}`}>{row.status}</span>
                                             </div>
                                             <span className="font-mono text-xs font-black text-navy/30">#{row.id.toString().padStart(3, '0')}</span>
                                         </div>
@@ -179,7 +197,7 @@ const CameraManagement = () => {
                                                 <div className="flex items-center mt-1 space-x-4">
                                                     <span className="text-navy/50 text-[10px]">{row.channelName || row.name}</span>
                                                     <span className="text-navy/40 font-mono text-[10px]">{row.ip}</span>
-                                                    <span className={`uppercase text-[8px] font-black tracking-widest px-2 py-0.5 rounded-full ${row.status === 'online' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}>{row.status}</span>
+                                                    <span className={`uppercase text-[8px] font-black tracking-widest px-2 py-0.5 rounded-full ${String(row.status).toLowerCase() === 'online' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}>{row.status}</span>
                                                     {row.record && <div className="flex items-center space-x-1"><span className="w-1.5 h-1.5 rounded-full bg-success"></span><span className="text-[8px] font-bold text-success/60 uppercase">Rec</span></div>}
                                                 </div>
                                             </div>

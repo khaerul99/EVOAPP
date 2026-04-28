@@ -8,10 +8,11 @@ import Reports from './pages/reports/Reports'
 import FaceManagement from './pages/management/face/FaceManagement'
 import LiveMonitoring from './pages/management/live/LiveMonitoring'
 import Playback from './pages/management/playback/Playback'
-import SystemSettings from './pages/settings/SystemSettings'
+import CameraSettings from './pages/settings/CameraSettings'
 import ProtectedRoute from './middleware/auth/ProtectedRoute'
 import SecurityLogs from './pages/settings/SecurityLogs'
 import UserManagement from './pages/management/user/UserManagement'
+import SystemSettings from './pages/settings/SystemSettings'
 
 const routes = createBrowserRouter([
   {
@@ -59,7 +60,11 @@ const routes = createBrowserRouter([
             element: <Playback />
           },
           {
-            path: "system-settings",
+            path: "camera-setting",
+            element: <CameraSettings />
+          },
+          {
+            path: "system-setting",
             element: <SystemSettings />
           },
           {

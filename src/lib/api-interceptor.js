@@ -1,5 +1,5 @@
 import { getRequestUri } from './api-config'
-import { buildDigestAuthorizationHeader, createCnonce, formatNc, parseDigestChallenge } from './auth-helper'
+import { buildDigestAuthorizationHeader, computeDigestSecret, createCnonce, formatNc, parseDigestChallenge } from './auth-helper'
 import { authStore } from '../stores/authSlice'
 
 function getHeaderCaseInsensitive(headers = {}, key) {
@@ -13,7 +13,9 @@ function getHeaderCaseInsensitive(headers = {}, key) {
 }
 
 function canUseDigest(state) {
-    return Boolean(state?.isAuthenticated && state?.auth?.username && state?.auth?.digestSecret && state?.challenge?.nonce)
+    const hasSecret = Boolean(state?.auth?.digestSecret)
+    const hasRuntimePassword = Boolean(state?.runtimeRtspPassword)
+    return Boolean(state?.isAuthenticated && state?.auth?.username && (hasSecret || hasRuntimePassword) && state?.challenge?.nonce)
 }
 
 function getBodyString(data) {
@@ -73,11 +75,17 @@ function appendDigestHeader(config, authState) {
     const method = config.method || 'GET'
     const body = getBodyString(config.data)
 
+    const hasDigestSecret = Boolean(authState?.auth?.digestSecret)
+    const digestSecret = hasDigestSecret
+        ? authState.auth.digestSecret
+        : computeDigestSecret(authState.auth.username, authState.challenge.realm, authState.runtimeRtspPassword || '')
+
     const authorization = buildDigestAuthorizationHeader({
         method,
         uri,
         username: authState.auth.username,
-        digestSecret: authState.auth.digestSecret,
+        digestSecret: digestSecret || undefined,
+        password: hasDigestSecret ? undefined : (authState.runtimeRtspPassword || ''),
         body,
         challenge: authState.challenge,
         nc,
@@ -110,11 +118,19 @@ export function setupInterceptors(ApiClient) {
             }
 
             if (response.status === 403) {
-                authStore.actions.clearSession()
                 throw error
             }
 
             if (response.status !== 401) {
+                throw error
+            }
+
+            if (originalConfig.__noRetry) {
+                throw error
+            }
+
+            const requestUrl = String(originalConfig.url || '').toLowerCase()
+            if (requestUrl.includes('.m3u8') || requestUrl.includes('playlist') || requestUrl.includes('manifest')) {
                 throw error
             }
 
@@ -125,15 +141,13 @@ export function setupInterceptors(ApiClient) {
             }
 
             const authState = authStore.getState()
-            if (!authState?.auth?.username || !authState?.auth?.digestSecret) {
-                authStore.actions.clearSession()
+            if (!authState?.auth?.username || (!authState?.auth?.digestSecret && !authState?.runtimeRtspPassword)) {
                 throw error
             }
 
             const authenticateHeader = getHeaderCaseInsensitive(response.headers, 'www-authenticate')
             const challenge = parseDigestChallenge(authenticateHeader || '')
             if (!challenge) {
-                authStore.actions.clearSession()
                 throw error
             }
 
@@ -146,6 +160,20 @@ export function setupInterceptors(ApiClient) {
                 },
                 refreshedState,
             )
+
+            if (!refreshedState?.auth?.digestSecret && refreshedState?.runtimeRtspPassword) {
+                const computedSecret = computeDigestSecret(
+                    refreshedState.auth.username,
+                    challenge.realm,
+                    refreshedState.runtimeRtspPassword,
+                )
+                authStore.actions.setSession({
+                    username: refreshedState.auth.username,
+                    digestSecret: computedSecret,
+                    challenge,
+                    rtspPassword: refreshedState.runtimeRtspPassword,
+                })
+            }
 
             return ApiClient.request(retriedConfig)
         },

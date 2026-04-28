@@ -12,7 +12,7 @@ import { logout } from '../../stores/useStore';
 const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
     const navigate = useNavigate();
     const location = useLocation();
-    const [expandedGroups, setExpandedGroups] = useState({ dashboard: true, cctv: true, analytics: true, control: true });
+    const [expandedGroups, setExpandedGroups] = useState({ dashboard: false, cctv: false, analytics: false, control: false, user: false });
 
     const menuGroups = [
         {
@@ -48,7 +48,7 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
             items: [
                 { label: "Live Monitoring", path: "/dashboard/live" },
                 { label: "Playback", path: "/dashboard/playback" },
-                { label: "System Settings", path: "/dashboard/settings" },
+                { label: "Camera Setting", path: "/dashboard/camera-setting" },
             ]
         },
         {

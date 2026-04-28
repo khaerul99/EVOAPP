@@ -1,12 +1,11 @@
-import React, { useEffect } from 'react';
-import { Loader2, PlayCircle, Radio, Search, Signal } from 'lucide-react';
-import { usePlayback } from '../../../hooks/playback/usePlayback';
+﻿import React from 'react';
+import { Loader2, Maximize2, Minimize2, Radio, Signal } from 'lucide-react';
+import { useLive } from '../../../hooks/live/useLive';
 
 const LiveMonitoring = () => {
     const {
         videoRef,
-        mode,
-        setMode,
+        liveContainerRef,
         form,
         updateField,
         selectedChannel,
@@ -23,16 +22,12 @@ const LiveMonitoring = () => {
         activeTransportLabel,
         liveRenderMode,
         setLiveRenderMode,
+        authCooldownRemainingSec,
         manifestCodecs,
         go2rtcDiagnostic,
-        handleStartStream,
-    } = usePlayback();
-
-    useEffect(() => {
-        if (mode !== 'live') {
-            setMode('live');
-        }
-    }, [mode, setMode]);
+        isFullscreen,
+        handleToggleFullscreen,
+    } = useLive();
 
     return (
         <div className="space-y-6 duration-500 animate-in fade-in">
@@ -52,7 +47,7 @@ const LiveMonitoring = () => {
             </div>
 
             {(error || playerError) && (
-                <div className="p-4 rounded-2xl border bg-white border-navy/10 text-navy/70 shadow-sm">
+                <div className="p-4 bg-white border shadow-sm rounded-2xl border-navy/10 text-navy/70">
                     <p className="text-xs font-semibold tracking-[0.2em] uppercase">
                         {error || playerError}
                     </p>
@@ -61,12 +56,15 @@ const LiveMonitoring = () => {
 
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
                 <section className="space-y-6 xl:col-span-3">
-                    <div className="relative overflow-hidden border shadow-2xl aspect-video rounded-3xl border-white/10 bg-navy">
+                    <div
+                        ref={liveContainerRef}
+                        className={`relative overflow-hidden border shadow-2xl border-white/10 bg-navy ${isFullscreen ? 'w-full h-full rounded-none' : 'aspect-video rounded-3xl'}`}
+                    >
                         {shouldUseHls ? (
                             <video
                                 ref={videoRef}
                                 controls
-                                muted
+                                muted={true}
                                 autoPlay
                                 playsInline
                                 preload="metadata"
@@ -81,13 +79,10 @@ const LiveMonitoring = () => {
                             />
                         ) : (
                             <div className="absolute inset-0 grid place-items-center bg-slate-900/40">
-                                <button type="button" onClick={handleStartStream} disabled={isSubmitting || isLoadingChannels}>
-                                    {isSubmitting ? (
-                                        <Loader2 size={88} className="text-white opacity-90 animate-spin" />
-                                    ) : (
-                                        <PlayCircle size={88} className="text-white transition-all opacity-70 hover:scale-110" />
-                                    )}
-                                </button>
+                                <div className="text-center">
+                                    <Loader2 size={40} className="mx-auto text-white opacity-90 animate-spin" />
+                                    <p className="mt-3 text-[10px] font-black uppercase tracking-[0.18em] text-white/80">Auto play sedang menyiapkan stream...</p>
+                                </div>
                             </div>
                         )}
 
@@ -96,14 +91,19 @@ const LiveMonitoring = () => {
                             <span className="text-[10px] font-black uppercase tracking-widest text-white/85">Live Mode</span>
                         </div>
 
-                        {streamSources && (
-                            <div className="absolute bottom-5 right-5 max-w-[78%] rounded-xl border border-cyan-200/30 bg-cyan-500/20 px-3 py-2 backdrop-blur-md">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-cyan-100">Transport: {activeTransportLabel}</p>
-                                <p className="mt-1 text-[10px] text-white/85">
-                                    Jika layar masih hitam, tunggu 2-3 detik lalu klik Start Stream lagi.
-                                </p>
-                            </div>
-                        )}
+                        <div className="absolute bottom-5 left-5">
+                            <button
+                                type="button"
+                                onClick={handleToggleFullscreen}
+                                className="inline-flex items-center justify-center gap-2 rounded-full border border-white/20 bg-black/45 px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-white backdrop-blur-md hover:bg-black/60"
+                                aria-label={isFullscreen ? 'Exit maximize' : 'Maximize stream'}
+                                title={isFullscreen ? 'Exit maximize' : 'Maximize stream'}
+                            >
+                                {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                            </button>
+                        </div>
+
+                       
                     </div>
 
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -120,6 +120,7 @@ const LiveMonitoring = () => {
                             <p className="mt-2 text-sm font-bold text-navy">{activeTransportLabel}</p>
                         </div>
                     </div>
+
                 </section>
 
                 <aside className="space-y-6 xl:col-span-2">
@@ -185,15 +186,11 @@ const LiveMonitoring = () => {
                             </div>
                         </div>
 
-                        <button
-                            type="button"
-                            onClick={handleStartStream}
-                            disabled={isSubmitting || isLoadingChannels}
-                            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-navy bg-navy py-4 text-[10px] font-black uppercase tracking-widest text-white transition-all hover:bg-navy/90 disabled:opacity-60"
-                        >
-                            {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-                            Start Live Stream
-                        </button>
+                        <div className="mt-5 rounded-xl border border-navy/15 bg-navy/[0.02] px-4 py-3 text-[10px] font-black uppercase tracking-widest text-navy/55">
+                            {authCooldownRemainingSec > 0
+                                ? `Auto play ditahan ${authCooldownRemainingSec} dtk untuk proteksi akun`
+                                : (isSubmitting ? 'Auto play sedang menyiapkan stream...' : 'Auto play aktif: pilih channel langsung play')}
+                        </div>
 
                         <div className="mt-5 space-y-3">
                             <div className="p-3 border rounded-xl border-slate-200 bg-slate-50/90">

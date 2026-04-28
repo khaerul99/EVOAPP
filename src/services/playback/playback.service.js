@@ -1,4 +1,5 @@
-import ApiClient from "../../lib/api";
+﻿import ApiClient from "../../lib/api";
+import { authStore } from "../../stores/authSlice";
 
 function formatPlaybackTimestamp(value) {
     if (!value) {
@@ -42,6 +43,8 @@ function formatPlaybackTimestampUtc(value) {
 
 const streamRegistrationCache = new Map();
 const inFlightRegistration = new Map();
+const failedRegistrationCooldown = new Map();
+const REGISTER_RETRY_COOLDOWN_MS = 10000;
 
 function getCameraHost() {
     const rtspHost = String(import.meta.env.VITE_RTSP_HOST || "").trim();
@@ -144,11 +147,52 @@ function encodeUserInfo(value) {
         });
 }
 
+function getActiveRtspCredentials() {
+    const authState = authStore.getState();
+    const sessionUsername = normalizeCredential(authState?.auth?.username || "");
+    const sessionPassword = normalizeCredential(authState?.runtimeRtspPassword || "");
+    const envUsername = normalizeCredential(import.meta.env.VITE_RTSP_USERNAME || "");
+    const envPassword = normalizeCredential(import.meta.env.VITE_RTSP_PASSWORD || "");
+
+    return {
+        username: sessionUsername || envUsername,
+        password: sessionPassword || envPassword,
+    };
+}
+
+function assertRtspCredentials(credentials) {
+    const username = normalizeCredential(credentials?.username || "");
+    const password = normalizeCredential(credentials?.password || "");
+    if (!username || !password) {
+        throw new Error("Kredensial RTSP belum siap. Silakan login ulang agar user/password RTSP sinkron dengan sesi aktif.");
+    }
+}
+
+function applyRtspCredentials(urlValue, credentials = {}) {
+    const raw = String(urlValue || "").trim();
+    if (!raw) {
+        return "";
+    }
+
+    try {
+        const parsed = new URL(raw);
+        const username = normalizeCredential(credentials.username || "");
+        const password = normalizeCredential(credentials.password || "");
+        parsed.username = username;
+        parsed.password = password;
+        return parsed.toString();
+    } catch {
+        return raw;
+    }
+}
+
 function buildRtspUrl(pathname, params) {
     const host = getCameraHost();
     const port = import.meta.env.VITE_RTSP_PORT || "554";
-    const username = normalizeCredential(import.meta.env.VITE_RTSP_USERNAME || "");
-    const password = normalizeCredential(import.meta.env.VITE_RTSP_PASSWORD || "");
+    const activeCredentials = getActiveRtspCredentials();
+    assertRtspCredentials(activeCredentials);
+    const username = normalizeCredential(activeCredentials.username || "");
+    const password = normalizeCredential(activeCredentials.password || "");
 
     const credentials = username
         ? `${encodeUserInfo(username)}${password ? `:${encodeUserInfo(password)}` : ""}@`
@@ -216,31 +260,6 @@ function buildFromTemplate(template, map) {
     return Object.entries(map).reduce((output, [key, value]) => {
         return output.replaceAll(`{${key}}`, String(value ?? ""));
     }, String(template));
-}
-
-function buildLiveHlsUrl({ channel, subtype = 0, rtspUrl = "" }) {
-    const template = import.meta.env.VITE_HLS_LIVE_TEMPLATE || "";
-    const stream = sanitizeNamePart(`live-ch${channel}-s${subtype}`) || "live-ch1-s0";
-    return applyTemplate(template, {
-        channel,
-        subtype,
-        stream,
-        streamEncoded: encodeURIComponent(stream),
-        rtsp: rtspUrl,
-        rtspEncoded: encodeURIComponent(rtspUrl),
-    });
-}
-
-function buildLivePlayerUrl({ channel, subtype = 0 }) {
-    const template = import.meta.env.VITE_GO2RTC_LIVE_PLAYER_TEMPLATE || "/go2rtc/stream.html?src={streamEncoded}&mode=mse,hls,webrtc";
-    const stream = sanitizeNamePart(`live-ch${channel}-s${subtype}`) || "live-ch1-s0";
-    const resolved = applyTemplate(template, {
-        channel,
-        subtype,
-        stream,
-        streamEncoded: encodeURIComponent(stream),
-    });
-    return toGo2rtcUrl(resolved);
 }
 
 function buildPlaybackPlayerUrl({ channel, streamName = "" }) {
@@ -394,26 +413,62 @@ export const playbackService = {
         }
 
         const inFlightKey = `${streamName}::${rtspUrl}`;
+        const now = Date.now();
+        const retryAfter = Number(failedRegistrationCooldown.get(inFlightKey) || 0);
+        if (retryAfter > now) {
+            const waitSeconds = Math.ceil((retryAfter - now) / 1000);
+            throw new Error(`Registrasi stream ditunda sementara untuk mencegah lockout. Coba lagi ${waitSeconds} detik lagi.`);
+        }
+
         if (inFlightRegistration.has(inFlightKey)) {
             return inFlightRegistration.get(inFlightKey);
         }
 
         const registerPath = import.meta.env.VITE_GO2RTC_STREAM_REGISTER_PATH || "/go2rtc/api/streams";
-        const registerUrl = new URL(registerPath, window.location.origin);
-        registerUrl.searchParams.set("name", streamName);
-        registerUrl.searchParams.set("src", rtspUrl);
+        const buildRegisterUrl = (nameParam = "name") => {
+            const registerUrl = new URL(registerPath, window.location.origin);
+            registerUrl.searchParams.set(nameParam, streamName);
+            registerUrl.searchParams.set("src", rtspUrl);
+            return registerUrl.toString();
+        };
 
-        const requestPromise = fetch(registerUrl.toString(), {
-            method: "PUT",
-        })
-            .then(async (response) => {
-                if (!response.ok) {
-                    const detail = await response.text().catch(() => "");
-                    throw new Error(detail || `Register stream gagal (${response.status})`);
+        const registerAttempts = [
+            { method: "PATCH", url: buildRegisterUrl("name") },
+            { method: "POST", url: buildRegisterUrl("name") },
+            { method: "PUT", url: buildRegisterUrl("name") },
+            // Some go2rtc builds use `dst` instead of `name`.
+            { method: "PATCH", url: buildRegisterUrl("dst") },
+            { method: "POST", url: buildRegisterUrl("dst") },
+            { method: "PUT", url: buildRegisterUrl("dst") },
+        ];
+
+        const requestPromise = (async () => {
+            const failures = [];
+
+            for (const attempt of registerAttempts) {
+                const response = await fetch(attempt.url, {
+                    method: attempt.method,
+                }).catch((error) => ({
+                    ok: false,
+                    status: 0,
+                    __error: error,
+                }));
+
+                if (response?.ok) {
+                    streamRegistrationCache.set(streamName, rtspUrl);
+                    failedRegistrationCooldown.delete(inFlightKey);
+                    return;
                 }
 
-                streamRegistrationCache.set(streamName, rtspUrl);
-            })
+                const detail = response?.__error
+                    ? String(response.__error?.message || response.__error || "")
+                    : await response.text().catch(() => "");
+                failures.push(`${attempt.method}: ${detail || `HTTP ${Number(response?.status || 0)}`}`);
+            }
+
+            failedRegistrationCooldown.set(inFlightKey, Date.now() + REGISTER_RETRY_COOLDOWN_MS);
+            throw new Error(`Register stream gagal. Detail: ${failures.join(" | ")}`);
+        })()
             .finally(() => {
                 inFlightRegistration.delete(inFlightKey);
             });
@@ -449,42 +504,10 @@ export const playbackService = {
 
         return false;
     },
-    buildLiveStreamSources: ({ channel, subtype = 0 }) => {
-        const liveTemplate = String(import.meta.env.VITE_RTSP_LIVE_URL_TEMPLATE || "").trim();
-        const liveExtraQuery = {
-            unicast: "true",
-            proto: "Onvif",
-            ...parseExtraRtspQuery("VITE_RTSP_LIVE_EXTRA_QUERY"),
-        };
-        const streamName = sanitizeNamePart(`live-ch${channel}-s${subtype}`) || "live-ch1-s0";
-        const rtspUrl = liveTemplate
-            ? buildFromTemplate(liveTemplate, { channel, subtype })
-            : buildRtspUrl("/cam/realmonitor", {
-            channel,
-            subtype,
-            ...liveExtraQuery,
-        });
-        const hlsUrl = buildLiveHlsUrl({
-            channel,
-            subtype,
-            rtspUrl,
-        });
-        const livePlayerUrl = buildLivePlayerUrl({
-            channel,
-            subtype,
-        });
-
-        return {
-            mode: "live",
-            streamName,
-            rtspUrl,
-            hlsUrl,
-            livePlayerUrl,
-            query: { channel, subtype },
-        };
-    },
     buildPlaybackStreamSources: ({ channel, subtype = 0, starttime, endtime }) => {
         const playbackTemplate = String(import.meta.env.VITE_RTSP_PLAYBACK_URL_TEMPLATE || "").trim();
+        const activeCredentials = getActiveRtspCredentials();
+        assertRtspCredentials(activeCredentials);
         const forceMainStream = envFlagEnabled("VITE_PLAYBACK_FORCE_MAIN_STREAM", false);
         const includeUtcParams = envFlagEnabled("VITE_PLAYBACK_INCLUDE_UTC_PARAMS", false);
         const includeUnicastParam = envFlagEnabled("VITE_PLAYBACK_INCLUDE_UNICAST_PARAM", false);
@@ -555,14 +578,21 @@ export const playbackService = {
                     };
 
                     const candidateRtspUrl = playbackTemplate
-                        ? buildFromTemplate(playbackTemplate, {
-                            channel,
-                            subtype: hasSubtype ? candidateSubtype : "",
-                            starttime: formattedStart,
-                            endtime: formattedEnd,
-                            starttimeRealUTC: formattedStartUtc,
-                            endtimeRealUTC: formattedEndUtc,
-                        })
+                        ? applyRtspCredentials(
+                            buildFromTemplate(playbackTemplate, {
+                                channel,
+                                subtype: hasSubtype ? candidateSubtype : "",
+                                starttime: formattedStart,
+                                endtime: formattedEnd,
+                                starttimeRealUTC: formattedStartUtc,
+                                endtimeRealUTC: formattedEndUtc,
+                                username: activeCredentials.username || "",
+                                password: activeCredentials.password || "",
+                                usernameEncoded: encodeUserInfo(activeCredentials.username || ""),
+                                passwordEncoded: encodeUserInfo(activeCredentials.password || ""),
+                            }),
+                            activeCredentials,
+                        )
                         : buildRtspUrl(candidatePath, candidateQuery);
 
                     if (!candidateRtspUrl) {

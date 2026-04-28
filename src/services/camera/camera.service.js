@@ -40,9 +40,9 @@ function parseChannelTitles(rawData) {
 
 function buildConfigManagerQuery(params) {
     return Object.entries(params || {})
-        .filter(([, value]) => value !== undefined && value !== null && value !== '')
+        .filter(([, value]) => value !== undefined && value !== null && value !== "")
         .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
-        .join('&');
+        .join("&");
 }
 
 function parseRemoteDevices(rawData) {
@@ -105,24 +105,19 @@ function extractObjectSequence(objectId) {
 function resolveChannelIndex(device) {
     const candidates = [
         toNumber(device["assignLocalChannel[0]"]),
-        toNumber(device.LogicChannelStart),
-        toNumber(device["Channels[0].channel"]),
         toNumber(device["Channels[0].uniqueChannel"]),
+        toNumber(device["Channels[0].channel"]),
+        toNumber(device.LogicChannelStart),
     ].filter((value) => value !== null && value >= 0);
 
     if (candidates.length > 0) {
         return candidates[0];
     }
 
-    const sequence = extractObjectSequence(device.objectId);
-    if (sequence !== null && sequence > 0) {
-        return sequence - 1;
-    }
-
     return null;
 }
 
-function mapRemoteDevicesByChannelIndex(remoteDevices) {
+function mapRemoteDevicesByChannelIndex(channelTitles, remoteDevices) {
     const sorted = [...(remoteDevices || [])].sort((left, right) =>
         String(left.objectId || "").localeCompare(String(right.objectId || ""), undefined, {
             numeric: true,
@@ -130,12 +125,49 @@ function mapRemoteDevicesByChannelIndex(remoteDevices) {
         }),
     );
 
-    return sorted.reduce((accumulator, device, index) => {
+    const mapping = {};
+    const unresolved = [];
+
+    sorted.forEach((device) => {
         const resolvedIndex = resolveChannelIndex(device);
-        const safeIndex = resolvedIndex !== null && resolvedIndex >= 0 ? resolvedIndex : index;
-        accumulator[safeIndex] = device;
-        return accumulator;
-    }, {});
+        const canUseResolved = resolvedIndex !== null
+            && resolvedIndex >= 0
+            && !mapping[resolvedIndex];
+
+        if (canUseResolved) {
+            mapping[resolvedIndex] = device;
+            return;
+        }
+
+        unresolved.push(device);
+    });
+
+    const isDefaultChannelTitle = (title) => /^channel\s*\d+$/i.test(String(title || "").trim());
+    const candidateIndexes = Object.keys(channelTitles)
+        .map((key) => Number(key))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+
+    const nonDefaultFreeIndexes = candidateIndexes.filter((index) => {
+        if (mapping[index]) {
+            return false;
+        }
+        const channelName = String(channelTitles[index] || "").trim();
+        return channelName && !isDefaultChannelTitle(channelName);
+    });
+
+    const defaultFreeIndexes = candidateIndexes.filter((index) => !mapping[index] && !nonDefaultFreeIndexes.includes(index));
+    const fallbackIndexes = [...nonDefaultFreeIndexes, ...defaultFreeIndexes];
+
+    unresolved.forEach((device, idx) => {
+        const targetIndex = fallbackIndexes[idx];
+        if (targetIndex === undefined) {
+            return;
+        }
+        mapping[targetIndex] = device;
+    });
+
+    return mapping;
 }
 
 function firstNonEmpty(...candidates) {
@@ -154,10 +186,57 @@ function firstNonEmpty(...candidates) {
 
 function normalizeOnlineStatus(value) {
     const normalized = String(value || "").trim().toLowerCase();
-    if (["1", "true", "online", "connect", "connected", "up", "enable", "enabled"].includes(normalized)) {
+    if (["1", "true", "online", "connect", "connected", "up", "ok", "normal", "alive", "enable", "enabled", "active"].includes(normalized)) {
         return "online";
     }
+    if (["0", "false", "offline", "disconnect", "disconnected", "down", "error", "failed", "fail", "timeout", "disable", "disabled", "inactive"].includes(normalized)) {
+        return "offline";
+    }
+    if (["", "unknown", "null", "undefined"].includes(normalized)) {
+        return "unknown";
+    }
     return "offline";
+}
+
+function resolveRemoteConnectionState(remote) {
+    return firstNonEmpty(
+        remote.Online,
+        remote.Status,
+        remote.ConnectStatus,
+        remote.ConnectState,
+        remote.ConnectionState,
+        remote.NetStatus,
+        remote.State,
+        "",
+    );
+}
+
+function resolveCameraStatus(remote, { record, hasConfiguredRemote, remoteChannelNumber, hasDeviceIdentity }) {
+    const connectionState = resolveRemoteConnectionState(remote);
+    if (connectionState) {
+        const normalizedFromConnection = normalizeOnlineStatus(connectionState);
+        if (normalizedFromConnection !== "unknown") {
+            return normalizedFromConnection;
+        }
+    }
+
+    if (remoteChannelNumber !== null) {
+        return remoteChannelNumber > 0 ? "online" : "offline";
+    }
+
+    if (record) {
+        return "online";
+    }
+
+    if (hasDeviceIdentity) {
+        return "online";
+    }
+
+    if (hasConfiguredRemote) {
+        return "offline";
+    }
+
+    return "unknown";
 }
 
 function normalizeRecordFlag(value) {
@@ -165,19 +244,88 @@ function normalizeRecordFlag(value) {
     return ["1", "true", "on", "enabled", "recording"].includes(normalized);
 }
 
-function toCameraRows(channelTitles, remoteDevices) {
-    const indexes = new Set([
-        ...Object.keys(channelTitles).map((key) => Number(key)),
-        ...Object.keys(remoteDevices).map((key) => Number(key)),
-    ]);
+function resolveStatusMessage(remote, status) {
+    const explicitMessage = firstNonEmpty(
+        remote.ErrorMsg,
+        remote.Error,
+        remote.LastError,
+        remote.FailReason,
+        remote.LoginError,
+        "",
+    );
+
+    if (explicitMessage) {
+        return explicitMessage;
+    }
+
+    if (status === "offline") {
+        return "Connection failed while logging in.";
+    }
+
+    return "";
+}
+
+function hasConfiguredRemote(remote) {
+    return Boolean(firstNonEmpty(
+        remote.Address,
+        remote.IPAddress,
+        remote.IP,
+        remote.Name,
+        remote.DeviceID,
+        remote.Protocol,
+        remote.ProtocolType,
+        remote.SerialNo,
+        remote.SN,
+    ));
+}
+
+function hasDeviceIdentity(remote) {
+    return Boolean(firstNonEmpty(
+        remote.Model,
+        remote.DeviceModel,
+        remote.SerialNo,
+        remote.SN,
+    ));
+}
+
+function toCameraRows(channelTitles, remoteDevicesByIndex) {
+    const mappedIndexes = Object.keys(remoteDevicesByIndex)
+        .map((key) => Number(key))
+        .filter((index) => Number.isFinite(index));
+    const indexes = new Set(
+        mappedIndexes.length > 0
+            ? mappedIndexes
+            : Object.keys(channelTitles).map((key) => Number(key)),
+    );
 
     return Array.from(indexes)
         .filter((index) => Number.isFinite(index))
         .sort((a, b) => a - b)
         .map((index) => {
-            const remote = remoteDevices[index] || {};
             const channelName = firstNonEmpty(channelTitles[index], `Channel ${index + 1}`);
-            const deviceName = firstNonEmpty(remote.Name, remote.SerialNo, remote.Vendor, "-");
+            const remote = remoteDevicesByIndex[index] || {};
+            const configuredRemote = hasConfiguredRemote(remote);
+            const remoteChannelNoRaw = firstNonEmpty(
+                remote["Channels[0].channel"],
+                remote["Channels[0].uniqueChannel"],
+                remote.RemoteChannel,
+                remote["assignLocalChannel[0]"],
+                remote.LogicChannelStart,
+                "",
+            );
+            const remoteChannelNumber = toNumber(remoteChannelNoRaw);
+            const remoteChannelNo = remoteChannelNoRaw || (configuredRemote ? "1" : "--");
+            const inferredRecordFlag = normalizeRecordFlag(firstNonEmpty(remote.RecordEnable, remote.RecEnable, ""));
+            const identityPresent = hasDeviceIdentity(remote);
+            const record = inferredRecordFlag || (configuredRemote && remoteChannelNumber !== null && remoteChannelNumber > 0) || identityPresent;
+            const status = resolveCameraStatus(remote, {
+                record,
+                hasConfiguredRemote: configuredRemote,
+                remoteChannelNumber,
+                hasDeviceIdentity: identityPresent,
+            });
+
+            const deviceName = firstNonEmpty(remote.Name, "-");
 
             return {
                 id: index + 1,
@@ -186,9 +334,16 @@ function toCameraRows(channelTitles, remoteDevices) {
                 deviceName,
                 ip: firstNonEmpty(remote.Address, remote.IPAddress, remote.IP, "-"),
                 port: firstNonEmpty(remote.Port, remote.HttpPort, remote.RTSPPort, "8000"),
-                status: normalizeOnlineStatus(firstNonEmpty(remote.Enable, remote.Online, remote.Status, "0")),
-                record: normalizeRecordFlag(firstNonEmpty(remote.RecordEnable, remote.RecEnable, remote.Enable, "0")),
+                status,
+                statusMessage: resolveStatusMessage(remote, status),
+                record,
+                registrationNo: firstNonEmpty(remote.DeviceID, remote.RegisterNo, remote.RegNo, "--"),
+                username: firstNonEmpty(remote.UserName, remote.Username, remote.Login, "admin"),
+                passwordMasked: firstNonEmpty(remote.Password, remote.PassWord, remote.Pwd, "") ? "******" : "--",
                 manufacture: firstNonEmpty(remote.ProtocolType, remote.Protocol, remote.Vendor, "Unknown"),
+                model: firstNonEmpty(remote.Model, remote.DeviceModel, "--"),
+                sn: firstNonEmpty(remote.SerialNo, remote.SN, "--"),
+                remoteChannelNo,
             };
         });
 }
@@ -205,22 +360,24 @@ export const cameraService = {
         }
 
         const channelTitles = parseChannelTitles(channelTitleResult.value?.data);
-        const remoteDevices = remoteDeviceResult.status === "fulfilled"
-            ? mapRemoteDevicesByChannelIndex(parseRemoteDevices(remoteDeviceResult.value?.data))
-            : {};
+        const parsedRemoteDevices = remoteDeviceResult.status === "fulfilled"
+            ? parseRemoteDevices(remoteDeviceResult.value?.data)
+            : [];
+        const remoteDevicesByIndex = mapRemoteDevicesByChannelIndex(channelTitles, parsedRemoteDevices);
 
-        return toCameraRows(channelTitles, remoteDevices);
+        return toCameraRows(channelTitles, remoteDevicesByIndex);
     },
+
     addRemoteDevice: async ({
         channelIndex = 0,
         ipAddress,
-        port = '37777',
-        username = 'admin',
-        password = 'admin123',
-        protocol = 'Private',
+        port = "37777",
+        username = "admin",
+        password = "admin123",
+        protocol = "Private",
     }) => {
         const query = buildConfigManagerQuery({
-            action: 'setConfig',
+            action: "setConfig",
             [`RemoteDevice[${channelIndex}].Address`]: ipAddress,
             [`RemoteDevice[${channelIndex}].Port`]: port,
             [`RemoteDevice[${channelIndex}].Username`]: username,
