@@ -77,17 +77,14 @@ async function fetchCameraSnapshot(set, get) {
         try {
             console.log('[useStore.fetchCameraSnapshot] Starting camera fetch...')
             const rows = await cameraService.getCameraChannels()
-            console.log('[useStore.fetchCameraSnapshot] Raw rows received:', rows.length)
             
             const cameras = normalizeCameraRows(rows)
-            console.log('[useStore.fetchCameraSnapshot] Normalized cameras:', cameras.map(c => ({ id: c.id, name: c.name, status: c.status })))
-            
             const onlineChannels = buildOnlineChannels(cameras)
             const cameraStatusByChannel = buildStatusByChannel(cameras)
             const cameraRecordByChannel = buildRecordByChannel(cameras)
-            console.log('[useStore.fetchCameraSnapshot] Online channels:', onlineChannels)
-            console.log('[useStore.fetchCameraSnapshot] Online count:', onlineChannels.length)
-            
+
+            // log
+
             const previousActive = get().activeChannel
             const nextActive = onlineChannels.length === 0
                 ? ''
@@ -112,12 +109,9 @@ async function fetchCameraSnapshot(set, get) {
                 channelError: '',
                 cameraError: '',
             })
-
-            console.log('[useStore.fetchCameraSnapshot] Store updated successfully')
             return cameras
         } catch (error) {
             const errorMessage = error?.response?.data?.message || error?.message || 'Gagal memuat data kamera dari perangkat.'
-            console.error('[useStore.fetchCameraSnapshot] Error:', errorMessage)
             set({
                 cameras: [],
                 onlineChannels: [],

@@ -100,9 +100,7 @@ export function useCameraManagement() {
 
     const loadCameras = useCallback(async () => {
         try {
-            console.log('[useCameraManagement.loadCameras] Starting...');
             const normalizedRows = await fetchCameras();
-            console.log('[useCameraManagement.loadCameras] Received rows:', normalizedRows.length);
 
             normalizedRows.forEach((row, idx) => {
                 console.log(`[useCameraManagement.loadCameras] Row ${idx}:`, {
@@ -114,12 +112,9 @@ export function useCameraManagement() {
                 });
             });
 
-            console.log('[useCameraManagement.loadCameras] Online channels:', useStore.getState().onlineChannels.length, useStore.getState().onlineChannels);
             setError('');
             setIsDigestRetrying(false);
-            console.log('[useCameraManagement.loadCameras] Success! Store updated.');
         } catch (requestError) {
-            console.error('[useCameraManagement.loadCameras] Error:', requestError);
             const statusCode = requestError?.response?.status;
             const isDigestInProgress = statusCode === 401;
 
