@@ -125,6 +125,7 @@ export function deriveStats(cameras, securityLogs) {
 
     return {
         peopleCount: Math.max(onlineCams * 18 + loginSuccessCount * 4 + settingsSavedCount, 0),
+        peopleCountingToday: Math.max(onlineCams * 12 + loginFailedCount * 3 + offlineCams * 2, 0),
         faceDetected: Math.max(totalCams * 12 + loginFailedCount * 3 + offlineCams * 2, 0),
         faceRecognized: Math.max(loginSuccessCount * 6 + settingsSavedCount * 2, 0),
         totalCams,

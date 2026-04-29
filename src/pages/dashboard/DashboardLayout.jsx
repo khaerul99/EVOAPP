@@ -1,8 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar, Navbar } from '../../components/layout';
+import { useStore } from '../../stores/useStore';
+
 const DashboardLayout = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
+    const initializeAfterLogin = useStore((state) => state.initializeAfterLogin);
+    const isBootstrapped = useStore((state) => state.isBootstrapped);
+
+    useEffect(() => {
+        if (!isBootstrapped) {
+            initializeAfterLogin();
+        }
+    }, [initializeAfterLogin, isBootstrapped]);
 
     return (
         <div className="relative flex h-screen overflow-hidden bg-background">

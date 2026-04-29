@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useStore } from '../../stores/useStore';
 import { cameraService } from '../../services/camera/camera.service';
 
 const INITIAL_NEW_CAMERA = {
@@ -41,8 +42,51 @@ function getNextAvailableChannelIndex(cameras) {
     return candidate;
 }
 
+function buildOnlineChannels(rows = []) {
+    return (Array.isArray(rows) ? rows : [])
+        .filter((row) => String(row?.status || '').toLowerCase() === 'online')
+        .map((row) => ({
+            id: `ch${row.id}`,
+            label: `${row.id} - ${row.channelName || row.name || `Channel ${row.id}`}`,
+            ip: row.ip || '-',
+        }));
+}
+
+function buildStatusByChannel(rows = []) {
+    return (Array.isArray(rows) ? rows : []).reduce((accumulator, row) => {
+        const channelId = Number(row?.id);
+        if (!Number.isFinite(channelId) || channelId < 1) {
+            return accumulator;
+        }
+
+        accumulator[`ch${channelId}`] = {
+            status: String(row?.status || 'unknown').toLowerCase(),
+            record: Boolean(row?.record),
+            statusMessage: String(row?.statusMessage || ''),
+            ip: String(row?.ip || ''),
+        };
+        return accumulator;
+    }, {});
+}
+
+function buildRecordByChannel(rows = []) {
+    return (Array.isArray(rows) ? rows : []).reduce((accumulator, row) => {
+        const channelId = Number(row?.id);
+        if (!Number.isFinite(channelId) || channelId < 1) {
+            return accumulator;
+        }
+
+        accumulator[`ch${channelId}`] = Boolean(row?.record);
+        return accumulator;
+    }, {});
+}
+
 export function useCameraManagement() {
-    const [cameras, setCameras] = useState([]);
+    const cameras = useStore((state) => state.cameras);
+    const onlineChannels = useStore((state) => state.onlineChannels);
+    const activeChannel = useStore((state) => state.activeChannel);
+    const fetchCameras = useStore((state) => state.fetchCameras);
+    const setActiveChannel = useStore((state) => state.setActiveChannel);
     const [currentPage, setCurrentPage] = useState(1);
     const [isAddPopupOpen, setIsAddPopupOpen] = useState(false);
     const [editCamera, setEditCamera] = useState(null);
@@ -56,21 +100,41 @@ export function useCameraManagement() {
 
     const loadCameras = useCallback(async () => {
         try {
-            const channelData = await cameraService.getCameraChannels();
-            setCameras(Array.isArray(channelData) ? channelData : []);
+            console.log('[useCameraManagement.loadCameras] Starting...');
+            const normalizedRows = await fetchCameras();
+            console.log('[useCameraManagement.loadCameras] Received rows:', normalizedRows.length);
+
+            normalizedRows.forEach((row, idx) => {
+                console.log(`[useCameraManagement.loadCameras] Row ${idx}:`, {
+                    id: row.id,
+                    name: row.name,
+                    status: row.status,
+                    record: row.record,
+                    ip: row.ip,
+                });
+            });
+
+            console.log('[useCameraManagement.loadCameras] Online channels:', useStore.getState().onlineChannels.length, useStore.getState().onlineChannels);
             setError('');
             setIsDigestRetrying(false);
+            console.log('[useCameraManagement.loadCameras] Success! Store updated.');
         } catch (requestError) {
+            console.error('[useCameraManagement.loadCameras] Error:', requestError);
             const statusCode = requestError?.response?.status;
             const isDigestInProgress = statusCode === 401;
 
             if (isDigestInProgress) {
                 setIsDigestRetrying(true);
                 setError('Sedang menunggu autentikasi digest. Data kamera akan dimuat otomatis.');
+                useStore.setState({
+                    isLoadingChannels: true,
+                    isLoadingCameras: true,
+                    channelError: 'Sedang menunggu autentikasi digest. Data kamera akan dimuat otomatis.',
+                    cameraError: 'Sedang menunggu autentikasi digest. Data kamera akan dimuat otomatis.',
+                });
                 return 'digest';
             }
 
-            setCameras([]);
             setIsDigestRetrying(false);
             if (statusCode === 403) {
                 setError('Akses ditolak (403) untuk data kamera pada akun ini.');
@@ -81,7 +145,7 @@ export function useCameraManagement() {
         }
 
         return 'ok';
-    }, []);
+    }, [fetchCameras]);
 
     
     
@@ -183,17 +247,49 @@ export function useCameraManagement() {
 
     const handleEditSubmit = useCallback((event) => {
         event.preventDefault();
-        setCameras((previous) => previous.map((camera) => camera.id === editCamera?.id ? editCamera : camera));
+        useStore.setState((previous) => {
+            const nextCameras = previous.cameras.map((camera) => camera.id === editCamera?.id ? editCamera : camera);
+            return {
+                cameras: nextCameras,
+                onlineChannels: buildOnlineChannels(nextCameras),
+                cameraStatusByChannel: buildStatusByChannel(nextCameras),
+                cameraRecordByChannel: buildRecordByChannel(nextCameras),
+                cameraSnapshot: {
+                    ...previous.cameraSnapshot,
+                    cameras: nextCameras,
+                    onlineChannels: buildOnlineChannels(nextCameras),
+                    cameraStatusByChannel: buildStatusByChannel(nextCameras),
+                    cameraRecordByChannel: buildRecordByChannel(nextCameras),
+                },
+            };
+        });
         setEditCamera(null);
     }, [editCamera]);
 
     const handleConfirmDelete = useCallback(() => {
-        setCameras((previous) => previous.filter((camera) => camera.id !== deleteCameraId));
+        useStore.setState((previous) => {
+            const nextCameras = previous.cameras.filter((camera) => camera.id !== deleteCameraId);
+            return {
+                cameras: nextCameras,
+                onlineChannels: buildOnlineChannels(nextCameras),
+                cameraStatusByChannel: buildStatusByChannel(nextCameras),
+                cameraRecordByChannel: buildRecordByChannel(nextCameras),
+                cameraSnapshot: {
+                    ...previous.cameraSnapshot,
+                    cameras: nextCameras,
+                    onlineChannels: buildOnlineChannels(nextCameras),
+                    cameraStatusByChannel: buildStatusByChannel(nextCameras),
+                    cameraRecordByChannel: buildRecordByChannel(nextCameras),
+                },
+            };
+        });
         setDeleteCameraId(null);
     }, [deleteCameraId]);
 
     return {
         cameras,
+        onlineChannels,
+        activeChannel,
         currentPage,
         setCurrentPage,
         isAddPopupOpen,

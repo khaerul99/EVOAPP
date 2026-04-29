@@ -1,4 +1,4 @@
-﻿import React, { useMemo } from "react";
+﻿import React, { useMemo, useState } from "react";
 import {
   Users,
   Cctv,
@@ -12,8 +12,10 @@ import {
 } from "lucide-react";
 import { useDashboard } from "../../hooks/dashboard/useDashboard";
 import { liveService } from "../../services/live/live.service";
+import DiagnosticsPanel from "../../components/diagnostics/DiagnosticsPanel";
 
 const DashboardHome = () => {
+  const [streamErrors, setStreamErrors] = useState({});
   const {
     activeCamera,
     setActiveCamera,
@@ -43,12 +45,24 @@ const DashboardHome = () => {
     }
 
     try {
-      return liveService.buildLiveStreamSources({ channel, subtype: 0 });
-    } catch {
+      const sources = liveService.buildLiveStreamSources({ channel, subtype: 0 });
+      setStreamErrors((prev) => {
+        const next = { ...prev };
+        delete next[`camera-${channel}`];
+        return next;
+      });
+      return sources;
+    } catch (err) {
+      const errorMsg = err?.message || 'Failed to build stream sources';
+      console.error('Active stream error:', errorMsg);
+      setStreamErrors((prev) => ({
+        ...prev,
+        [`camera-${channel}`]: errorMsg,
+      }));
       return null;
     }
   }, [activeCamera, hasActiveCamera]);
-  const activePlayerUrl = activeStreamSources?.livePlayerUrl || "";
+  const activePlayerUrl = activeStreamSources?.livePlayerUrl ? `${activeStreamSources.livePlayerUrl}&autoplay=1` : "";
   const activeHlsUrl = activeStreamSources?.hlsUrl || "";
   const showPlayableStream =
     hasActiveCamera &&
@@ -66,11 +80,23 @@ const DashboardHome = () => {
       }
 
       try {
-        accumulator[camera.id] = liveService.buildLiveStreamSources({
+        const sources = liveService.buildLiveStreamSources({
           channel,
           subtype: 0,
         });
-      } catch {
+        setStreamErrors((prev) => {
+          const next = { ...prev };
+          delete next[`camera-${channel}`];
+          return next;
+        });
+        accumulator[camera.id] = sources;
+      } catch (err) {
+        const errorMsg = err?.message || 'Failed to build stream sources';
+        console.error(`Thumbnail stream error for camera ${channel}:`, errorMsg);
+        setStreamErrors((prev) => ({
+          ...prev,
+          [`camera-${channel}`]: errorMsg,
+        }));
         accumulator[camera.id] = null;
       }
       return accumulator;
@@ -109,7 +135,7 @@ const DashboardHome = () => {
           className={`p-4 rounded-2xl border ${error ? "bg-danger/10 border-danger/20 text-danger" : "bg-white border-navy/10 text-navy/60"} shadow-sm`}
         >
           <p className="text-xs font-semibold tracking-[0.2em] uppercase">
-            {isLoading ? "Memuat data kamera dan security log." : error}
+            {isLoading ? "Menyinkronkan data kamera dan log keamanan..." : error}
           </p>
         </div>
       )}
@@ -127,6 +153,12 @@ const DashboardHome = () => {
           label="Fleet Integrity"
           value={`${stats.onlineCams}/${stats.totalCams}`}
           subtext={`${stats.offlineCams} Units Offline`}
+        />
+        <StatCard
+          icon={Users}
+          label="People Counting Today"
+          value={formatCount(stats.peopleCountingToday)}
+          subtext="Total unique counts"
         />
       </div>
 
@@ -185,8 +217,6 @@ const DashboardHome = () => {
                   size={56}
                   className="mb-5 text-white/20 animate-pulse"
                 />
-              ) : showPlayableStream ? (
-                <PlayCircle size={56} className="mb-5 text-white/20" />
               ) : (
                 <WifiOff
                   size={56}
@@ -196,15 +226,15 @@ const DashboardHome = () => {
               <p className="text-base md:text-lg font-black tracking-[0.22em] uppercase text-white/20">
                 {isLoading
                   ? "Syncing Camera Registry"
-                  : showPlayableStream
-                    ? "Paused"
+                  : hasActiveCamera
+                    ? "Stream Unavailable"
                     : "System Disconnected"}
               </p>
               <p className="mt-2 text-xs font-medium tracking-wide text-white/35 max-w-[22rem] leading-relaxed">
                 {isLoading
                   ? "Menunggu data kamera terbaru dari perangkat."
-                  : showPlayableStream
-                    ? "Tekan Play untuk memulai stream kamera aktif."
+                  : hasActiveCamera
+                    ? "Stream untuk kamera ini sedang tidak dapat diakses."
                     : "Tidak ada feed aktif untuk ditampilkan saat ini."}
               </p>
             </div>
@@ -253,8 +283,9 @@ const DashboardHome = () => {
                     <iframe
                       title={cam.channelName || cam.name}
                       src={
-                        cameraStreamSources[cam.id].livePlayerUrl ||
-                        cameraStreamSources[cam.id].hlsUrl
+                        cameraStreamSources[cam.id].livePlayerUrl
+                          ? `${cameraStreamSources[cam.id].livePlayerUrl}&autoplay=1`
+                          : cameraStreamSources[cam.id].hlsUrl
                       }
                       className="absolute inset-0 w-full h-full border-0"
                       allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
@@ -330,6 +361,8 @@ const DashboardHome = () => {
           )}
         </div>
       </div>
+
+      <DiagnosticsPanel />
     </div>
   );
 };

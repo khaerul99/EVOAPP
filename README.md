@@ -68,3 +68,26 @@ npm run stream:down
 - **Styling**: Tailwind CSS 3
 - **Icons**: Lucide React
 - **Routing**: React Router DOM v6
+
+## Dahua Digest Auth Architecture
+
+Project ini sudah menyiapkan Digest Auth terpusat agar endpoint baru tidak perlu implementasi auth ulang.
+
+- Gunakan `ApiClient` dari `src/lib/api.js` untuk semua endpoint Dahua.
+- Digest signing dan retry 401 otomatis ditangani interceptor.
+- Scope Digest default hanya untuk path yang diawali `/cgi-bin/`.
+
+Konfigurasi opsional:
+
+- `VITE_DIGEST_PATH_PREFIXES`: daftar prefix path dipisah koma untuk endpoint yang harus diproses Digest. Default: `/cgi-bin/`.
+
+Contoh endpoint baru (otomatis ikut Digest):
+
+```js
+import ApiClient from '../lib/api'
+
+export async function getStorageInfo() {
+    const response = await ApiClient.get('/cgi-bin/storageDevice.cgi?action=getDeviceAllInfo')
+    return response.data
+}
+```
