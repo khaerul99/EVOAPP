@@ -16,6 +16,16 @@ let cameraStatusSnapshotCache = {
 };
 let cameraStatusSnapshotPromise = null;
 
+const REMOTE_DEVICE_CACHE_TTL_MS = Number(
+  import.meta.env.VITE_REMOTE_DEVICE_CACHE_TTL_MS || CAMERA_CHANNELS_CACHE_TTL_MS,
+);
+
+let remoteDeviceCache = {
+  devices: null,
+  fetchedAt: 0,
+};
+let remoteDeviceInFlightPromise = null;
+
 function getCachedCameraRows() {
   const ttl = Number.isFinite(CAMERA_CHANNELS_CACHE_TTL_MS)
     ? Math.max(0, CAMERA_CHANNELS_CACHE_TTL_MS)
@@ -30,6 +40,73 @@ function getCachedCameraRows() {
   }
 
   return [...cameraChannelsCache.rows];
+}
+
+function getCachedRemoteDevices() {
+  const ttl = Number.isFinite(REMOTE_DEVICE_CACHE_TTL_MS)
+    ? Math.max(0, REMOTE_DEVICE_CACHE_TTL_MS)
+    : 0;
+  if (!ttl) {
+    return null;
+  }
+
+  const age = Date.now() - Number(remoteDeviceCache.fetchedAt || 0);
+  if (!Array.isArray(remoteDeviceCache.devices) || age > ttl) {
+    return null;
+  }
+
+  return [...remoteDeviceCache.devices];
+}
+
+function updateRemoteDeviceCache(devices) {
+  remoteDeviceCache = {
+    devices: Array.isArray(devices) ? [...devices] : [],
+    fetchedAt: Date.now(),
+  };
+}
+
+function clearRemoteDeviceCache() {
+  remoteDeviceCache = {
+    devices: null,
+    fetchedAt: 0,
+  };
+}
+
+async function fetchRemoteDevices() {
+  const response = await ApiClient.get(
+    "/cgi-bin/configManager.cgi?action=getConfig&name=RemoteDevice",
+    {
+      headers: {
+        "Cache-Control": "no-cache, no-store",
+        Pragma: "no-cache",
+      },
+    },
+  );
+
+  return parseRemoteDevices(response?.data);
+}
+
+async function getRemoteDevices() {
+  const cached = getCachedRemoteDevices();
+  if (cached) {
+    return cached;
+  }
+
+  if (remoteDeviceInFlightPromise) {
+    return remoteDeviceInFlightPromise;
+  }
+
+  remoteDeviceInFlightPromise = (async () => {
+    try {
+      const devices = await fetchRemoteDevices();
+      updateRemoteDeviceCache(devices);
+      return devices;
+    } finally {
+      remoteDeviceInFlightPromise = null;
+    }
+  })();
+
+  return remoteDeviceInFlightPromise;
 }
 
 function updateCameraRowsCache(rows) {
@@ -255,22 +332,11 @@ function resolveChannelIndex(device) {
 
 function resolveRemoteChannelNo(device, fallbackIndex) {
   const candidates = [
-    toNumber(device.RemoteChannelNo),
-    toNumber(device.RemoteChannel),
-    toNumber(device.ChannelNo),
-    toNumber(device.Channel),
-    toNumber(device["Channels[0].channel"]),
-    toNumber(device["Channels[0].uniqueChannel"]),
-    toNumber(device.LogicChannelStart),
+    toNumber(device["VideoInputChannels"]),
   ].filter((value) => value !== null && value > 0);
 
   if (candidates.length > 0) {
     return String(candidates[0]);
-  }
-
-  const localChannel = toNumber(device["assignLocalChannel[0]"]);
-  if (localChannel !== null && localChannel >= 0) {
-    return String(localChannel + 1);
   }
 
   return String((Number.isFinite(fallbackIndex) ? fallbackIndex : 0) + 1);
@@ -383,149 +449,7 @@ function parseCameraAllResponse(rawData) {
   });
 }
 
-function resolveCameraAllStatus(camera) {
-  const connectionState = firstNonEmpty(
-    camera.ConnectionState,
-    camera.State,
-    camera.connectionState,
-    camera.state,
-    camera["DeviceInfo.ConnectionState"],
-    camera["DeviceInfo.ConnectState"],
-    camera["DeviceInfo.ConnectStatus"],
-    camera["DeviceInfo.State"],
-    "",
-  );
 
-  const normalizedConnection = normalizeOnlineStatus(connectionState);
-  if (normalizedConnection !== "unknown") {
-    return normalizedConnection;
-  }
-
-  if (toBoolean(camera.Enable) || toBoolean(camera["DeviceInfo.Enable"])) {
-    return "online";
-  }
-
-  return "offline";
-}
-
-function resolveCameraAllRemoteChannelNo(camera, fallbackIndex) {
-  const candidates = [
-    toNumber(camera.UniqueChannel),
-    toNumber(camera["DeviceInfo.UniqueChannel"]),
-  ].filter((value) => value !== null && value >= 0);
-
-  if (candidates.length > 0) {
-    return String(candidates[0] + 1);
-  }
-
-  return String((Number.isFinite(fallbackIndex) ? fallbackIndex : 0) + 1);
-}
-
-function isRegisteredCamera(camera) {
-  return Boolean(
-    firstNonEmpty(
-      camera.DeviceID,
-      camera["DeviceInfo.DeviceID"],
-      camera["DeviceInfo.RegID"],
-    ),
-  );
-}
-
-function mapCameraAllToRows(cameraEntries = []) {
-  return cameraEntries
-    .filter((camera) => isRegisteredCamera(camera))
-    .map((camera, index) => {
-      const channelNumber = Number(resolveCameraAllRemoteChannelNo(camera, index));
-      const status = resolveCameraAllStatus(camera);
-
-      return {
-        id: Number.isFinite(channelNumber) ? channelNumber : index + 1,
-        name: firstNonEmpty(
-          camera["DeviceInfo.Name"],
-          camera.Name,
-          `Channel ${index + 1}`,
-        ),
-        channelName: firstNonEmpty(
-          camera["DeviceInfo.Name"],
-          camera.Name,
-          `Channel ${index + 1}`,
-        ),
-        deviceName: firstNonEmpty(
-          camera["DeviceInfo.DeviceType"],
-          camera["DeviceInfo.Name"],
-          camera.Name,
-          "-",
-        ),
-        ip: firstNonEmpty(
-          camera["DeviceInfo.Address"],
-          camera["DeviceInfo.IPAddress"],
-          camera["DeviceInfo.IP"],
-          camera.Address,
-          camera.IPAddress,
-          camera.IP,
-          "-",
-        ),
-        port: firstNonEmpty(
-          camera["DeviceInfo.Port"],
-          camera["DeviceInfo.HttpPort"],
-          camera["DeviceInfo.RtspPort"],
-          camera.Port,
-          "37777",
-        ),
-        status,
-        statusMessage: resolveStatusMessage(camera, status),
-        record: toBoolean(camera.Enable ?? camera["DeviceInfo.Enable"]),
-        registrationNo: firstNonEmpty(
-          camera["DeviceInfo.RegID"],
-          camera.RegID,
-          "--",
-        ),
-        username: firstNonEmpty(
-          camera.UserName,
-          camera.Username,
-          camera["DeviceInfo.UserName"],
-          camera["DeviceInfo.Username"],
-          "admin",
-        ),
-        passwordMasked: firstNonEmpty(
-          camera.Password,
-          camera.PassWord,
-          camera["DeviceInfo.Password"],
-          camera["DeviceInfo.PassWord"],
-          "",
-        )
-          ? "******"
-          : "******",
-        manufacture: firstNonEmpty(
-          camera["DeviceInfo.ProtocolType"],
-          camera["DeviceInfo.Vendor"],
-          camera.Vendor,
-          camera.ProtocolType,
-          "Dahua",
-        ),
-        model: firstNonEmpty(
-          camera["DeviceInfo.DeviceType"],
-          camera["DeviceInfo.Model"],
-          camera.DeviceType,
-          camera.Model,
-          "--",
-        ),
-        sn: firstNonEmpty(
-          camera["DeviceInfo.SerialNo"],
-          camera.SerialNo,
-          camera.SN,
-          "--",
-        ),
-        remoteChannelNo: firstNonEmpty(
-          camera["DeviceInfo.VideoInputChannels"],
-          camera.RemoteChannelNo,
-          "--",
-
-        )
-      };
-    })
-    .filter(Boolean);
-}
 
 function delay(ms = 0) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -828,14 +752,13 @@ function toCameraRows(
         status: probe.status || "offline",
         statusMessage: probe.status === "offline" ? "Status probe failed or disconnected." : "",
         record: Boolean(probe.record),
-        registrationNo: firstNonEmpty(remote.DeviceID, remote.RegID, "--"),
+        registrationNo: firstNonEmpty(remote.DeviceID, remote.RegID, "--"), 
         username: firstNonEmpty(remote.UserName, remote.Username, "admin"),
-        // passwordMasked: firstNonEmpty(remote.Password, remote.PassWord, "") ? "******" : "--",
-        passwordMasked: "******",
-        manufacture: firstNonEmpty(remote.Vendor, remote.Manufacturer, remote.ManuFacturer, remote.ProtocolType, remote.Protocol, "Dahua"),
+        passwordMasked: firstNonEmpty(remote.Password, remote.PassWord, "") ? "******" : "--",
+        manufacture: firstNonEmpty(remote.ProtocolType, remote.Vendor,  "Dahua"),
         model: firstNonEmpty(remote.DeviceType, remote.Model, remote.DeviceModel, "--"),
         sn: firstNonEmpty(remote.SerialNo, remote.SN, "--"),
-        remoteChannelNo: resolveRemoteChannelNo(remote, index),
+        remoteChannelNo: resolveRemoteChannelNo(remote, remote.VideoInputChannels),
       };
     })
     .filter(Boolean);
@@ -1214,37 +1137,136 @@ function buildAddCameraRequest({
   protocol = "Private",
 }) {
   const resolvedChannelNumber = normalizeAddChannelNumber(channelNumber);
+  const resolvedPort = Number(port) || 37777;
 
   return {
-    group: {},
-    uniqueChannel: resolvedChannelNumber,
-    addDevice: {
-      device: {
-        DeviceName: firstNonEmpty(ipAddress, `Camera ${resolvedChannelNumber}`),
-        ProtocolType: protocol,
-        Port: Number(port) || 37777,
-        Username: username,
-        Password: password,
-        IpAddress: ipAddress,
-        Address: ipAddress,
-        ChannelNum: resolvedChannelNumber,
+    group: [
+      {
+        DeviceInfo: {
+          UserName: username,
+          Password: password,
+          ProtocolType: protocol,
+          Port: resolvedPort,
+          Address: ipAddress,
+        },
+        cameras: [
+          {
+            uniqueChannel: resolvedChannelNumber,
+          },
+        ],
       },
-    },
+    ],
   };
 }
 
 async function postAddCameraRequest(payload) {
-  const response = await ApiClient.post(
-    "/cgi-bin/configManager.cgi?action=setConfig",
-    payload,
-    {
-      headers: {
-        "Content-Type": "application/json",
+  console.log("[cameraService] Sending addCameraByGroup payload:", JSON.stringify(payload, null, 2));
+  
+  try {
+    const response = await ApiClient.post(
+      "/cgi-bin/logicDeviceManager.cgi?action=addCameraByGroup",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
       },
-    },
-  );
+    );
 
-  return response?.data;
+    console.log("[cameraService] addCameraByGroup response:", response?.data);
+    return response?.data;
+  } catch (error) {
+    console.error("[cameraService] addCameraByGroup error:", {
+      status: error?.response?.status,
+      statusText: error?.response?.statusText,
+      message: error?.message,
+      response: error?.response?.data,
+      payload,
+    });
+    throw error;
+  }
+}
+
+async function getRemoteDeviceUsedChannels(totalSlots = 64) {
+  const maxSlots = Math.max(1, Number(totalSlots) || 64);
+
+  try {
+    const remoteDevices = await getRemoteDevices();
+    const used = new Set();
+
+    (Array.isArray(remoteDevices) ? remoteDevices : []).forEach((device) => {
+      const isEnabled = 
+        String(device?.Enable || device?.Enabled || "false").toLowerCase() === "true" ||
+        Boolean(device?.DeviceID && String(device.DeviceID).trim());
+      
+      if (!isEnabled) {
+        return;
+      }
+      
+      let resolvedIndex = null;
+      const uniqueChannelValue = toNumber(device?.UniqueChannel);
+      if (Number.isFinite(uniqueChannelValue) && uniqueChannelValue >= 0) {
+        resolvedIndex = uniqueChannelValue;
+      } else {
+        const channelValue = toNumber(device?.Channel);
+        if (Number.isFinite(channelValue) && channelValue >= 0) {
+          resolvedIndex = channelValue;
+        }
+      }
+      
+      if (!Number.isFinite(resolvedIndex)) {
+        resolvedIndex = Number.isFinite(device?.channelIndex)
+          ? Number(device.channelIndex)
+          : resolveChannelIndex(device || {});
+      }
+
+      if (!Number.isFinite(resolvedIndex) || resolvedIndex < 0) {
+        return;
+      }
+
+      const channelNumber = resolvedIndex + 1;
+      if (channelNumber >= 1 && channelNumber <= maxSlots) {
+        used.add(channelNumber);
+      }
+    });
+
+    return [...used].sort((left, right) => left - right);
+  } catch {
+    return [];
+  }
+}
+
+async function getRemoteDeviceEmptyChannels(totalSlots = 64) {
+  const maxSlots = Math.max(1, Number(totalSlots) || 64);
+  const usedChannels = new Set(await getRemoteDeviceUsedChannels(maxSlots));
+
+  return Array.from({ length: maxSlots }, (_, index) => index + 1).filter(
+    (channelNumber) => !usedChannels.has(channelNumber),
+  );
+}
+
+async function getRemoteDeviceManufacturers() {
+  try {
+    const remoteDevices = await getRemoteDevices();
+    const vendorsSet = new Set();
+
+    (Array.isArray(remoteDevices) ? remoteDevices : []).forEach((device) => {
+      const vendor = String(device?.Vendor || device?.ProtocolType || device?.Protocol || "").trim();
+      if (vendor && vendor.toLowerCase() !== "unknown") {
+        vendorsSet.add(vendor);
+      }
+    });
+
+    const uniqueVendors = Array.from(vendorsSet).sort();
+    const standardVendors = ["Private","Onvif","Onvifs","GB28181"];
+    const allVendors = [
+      ...new Set([...standardVendors, ...uniqueVendors]),
+    ];
+
+    return allVendors;
+  } catch {
+    return ["Private", "Onvif", "Onvifs", "GB28181"];
+  }
 }
 
 export const cameraService = {
@@ -1298,36 +1320,37 @@ export const cameraService = {
       }
     };
 
-    // Fetch ChannelTitle and CameraAll in parallel to reduce latency
-    const [channelTitleResult, cameraAllResult] = await Promise.all([
+    // Fetch ChannelTitle and RemoteDevice in parallel to reduce latency
+    const [channelTitleResult, remoteDeviceResult] = await Promise.all([
       fetchConfigWithRetry(
         "/cgi-bin/configManager.cgi?action=getConfig&name=ChannelTitle",
         "ChannelTitle",
       ),
       fetchConfigWithRetry(
-        "/cgi-bin/LogicDeviceManager.cgi?action=getCameraAll",
-        "CameraAll",
+        "/cgi-bin/configManager.cgi?action=getConfig&name=RemoteDevice",
+        "RemoteDevice",
       ),
     ]);
 
     const channelTitleFulfilled = !channelTitleResult?.__error;
-    const cameraAllFulfilled = !cameraAllResult?.__error;
+    const remoteDeviceFulfilled = !remoteDeviceResult?.__error;
 
     const channelTitles = channelTitleFulfilled
       ? parseChannelTitles(channelTitleResult?.data)
       : {};
 
-    const parsedCameraEntries = cameraAllFulfilled
-      ? parseCameraAllResponse(cameraAllResult?.data)
+    const remoteDevices = remoteDeviceFulfilled
+      ? parseRemoteDevices(remoteDeviceResult?.data)
       : [];
 
-    if (!channelTitleFulfilled && !cameraAllFulfilled) {
-      const error = channelTitleResult?.__error || cameraAllResult?.__error;
+    if (!channelTitleFulfilled && !remoteDeviceFulfilled) {
+      const error = channelTitleResult?.__error || remoteDeviceResult?.__error;
       console.error("[cameraService] Both requests failed:", error);
       throw error;
     }
 
-    const cameraRows = mapCameraAllToRows(parsedCameraEntries);
+    const remoteDevicesByIndex = mapRemoteDevicesByChannelIndex(channelTitles, remoteDevices);
+    const cameraRows = toCameraRows(channelTitles, remoteDevicesByIndex);
     const probeIndexes = Array.from(
       new Set(cameraRows.map((row) => Number(row.id))),
     )
@@ -1402,20 +1425,40 @@ export const cameraService = {
     protocol = "Private",
   }) => {
     clearCameraRowsCache();
-    const query = buildConfigManagerQuery({
-      action: "setConfig",
-      [`RemoteDevice[${channelIndex}].Address`]: ipAddress,
-      [`RemoteDevice[${channelIndex}].Port`]: port,
-      [`RemoteDevice[${channelIndex}].Username`]: username,
-      [`RemoteDevice[${channelIndex}].Password`]: password,
-      [`RemoteDevice[${channelIndex}].Protocol`]: protocol,
-    });
-
-    const response = await ApiClient.get(`/cgi-bin/configManager.cgi?${query}`);
+    clearRemoteDeviceCache();
+    const response = await postAddCameraRequest(
+      buildAddCameraRequest({
+        channelNumber: Number(channelIndex) + 1,
+        ipAddress,
+        port,
+        username,
+        password,
+        protocol,
+      }),
+    );
     clearCameraRowsCache();
+    clearRemoteDeviceCache();
     clearCameraStatusSnapshotCache();
-    return response?.data;
+    return response;
   },
+
+  addCameraDevices: async ({ devices = [] } = {}) => {
+    const payloads = Array.isArray(devices) ? devices : [];
+    const responses = [];
+
+    for (const device of payloads) {
+      const response = await postAddCameraRequest(
+        buildAddCameraRequest(device),
+      );
+      responses.push(response);
+    }
+
+    clearCameraRowsCache();
+    clearRemoteDeviceCache();
+    clearCameraStatusSnapshotCache();
+    return responses;
+  },
+
+  getRemoteDeviceEmptyChannels,
+  getRemoteDeviceManufacturers,
 };
-
-
