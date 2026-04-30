@@ -12,6 +12,7 @@ const FALLBACK_THUMBNAILS = [
 export const useDashboard = () => {
     const cameras = useStore((state) => state.cameras);
     const cameraSnapshot = useStore((state) => state.cameraSnapshot);
+    const channelConnectionStates = useStore((state) => state.channelConnectionStates);
     const onlineChannels = useStore((state) => state.onlineChannels);
     const activeChannel = useStore((state) => state.activeChannel);
     const isLoadingCameras = useStore((state) => state.isLoadingCameras);
@@ -72,10 +73,10 @@ export const useDashboard = () => {
 
     const securityLogs = useMemo(() => getSecurityLogs(), [currentDateTime]);
     const stats = useMemo(() => {
-        const derived = deriveStats(normalizedCameras, securityLogs);
+        const derived = deriveStats(normalizedCameras, securityLogs, channelConnectionStates);
         console.log('[useDashboard.stats]', derived);
         return derived;
-    }, [normalizedCameras, securityLogs]);
+    }, [normalizedCameras, securityLogs, channelConnectionStates]);
     const events = useMemo(() => buildDashboardEvents(normalizedCameras, securityLogs), [normalizedCameras, securityLogs]);
 
     const setActiveCamera = useCallback((camera) => {
@@ -110,12 +111,15 @@ export const useDashboard = () => {
         }
     };
 
+    const unconnectedChannels = useStore((state) => state.unconnectedChannels);
+
     return {
         activeCamera,
         setActiveCamera,
         cameras: normalizedCameras,
         cameraSnapshot,
         onlineChannels,
+        unconnectedChannels,
         events,
         isFullscreen,
         setIsFullscreen,

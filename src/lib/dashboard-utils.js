@@ -115,9 +115,16 @@ export function buildDashboardEvents(cameras, securityLogs) {
         .map(({ timestamp, ...event }) => event);
 }
 
-export function deriveStats(cameras, securityLogs) {
-    const totalCams = cameras.length;
-    const onlineCams = cameras.filter((camera) => camera.status === 'online').length;
+export function deriveStats(cameras, securityLogs, channelConnectionStates = null) {
+    // If we have channel connection states, use them for total/online counts
+    let totalCams = cameras.length;
+    let onlineCams = cameras.filter((camera) => camera.status === 'online').length;
+    
+    if (channelConnectionStates?.totalCount && Number.isFinite(channelConnectionStates.totalCount)) {
+        totalCams = channelConnectionStates.totalCount;
+        onlineCams = channelConnectionStates.onlineCount;
+    }
+    
     const offlineCams = Math.max(totalCams - onlineCams, 0);
     const loginSuccessCount = securityLogs.filter((log) => log.action === 'login_success').length;
     const loginFailedCount = securityLogs.filter((log) => log.action === 'login_failed').length;

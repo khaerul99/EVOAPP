@@ -1280,8 +1280,100 @@ async function getRemoteDeviceManufacturers() {
   }
 }
 
+function parseAllChannelConnectionStates(rawData) {
+  const payload = rawData && typeof rawData === "object" && !Array.isArray(rawData)
+    ? rawData
+    : normalizeDahuaConfigMap(rawData);
+
+  const states = Array.isArray(payload?.states)
+    ? payload.states
+    : Array.isArray(payload?.state)
+      ? payload.state
+      : [];
+
+  const channels = states.map((state, index) => {
+    const channel = Number(
+      state?.channel
+      ?? state?.Channel
+      ?? state?.chan
+      ?? state?.Chan
+      ?? index,
+    );
+    const normalized = normalizeCameraStateValue(state);
+    return {
+      channel,
+      ...normalized,
+    };
+  });
+
+  const onlineCount = channels.filter((ch) => ch.online).length;
+  const totalCount = channels.length;
+
+  return {
+    channels,
+    onlineCount,
+    totalCount,
+  };
+}
+
+async function getChannelConnectionStates() {
+  try {
+    const snapshot = await fetchCameraStatusSnapshot();
+    const videoData = snapshot?.videoData;
+
+    if (!videoData) {
+      return {
+        channels: [],
+        onlineCount: 0,
+        totalCount: 0,
+      };
+    }
+
+    return parseAllChannelConnectionStates(videoData);
+  } catch (error) {
+    console.error("[getChannelConnectionStates] error", error?.message);
+    return {
+      channels: [],
+      onlineCount: 0,
+      totalCount: 0,
+    };
+  }
+}
+
+async function getUnconnectedChannels() {
+  try {
+    const states = await getChannelConnectionStates();
+    const channels = Array.isArray(states?.channels) ? states.channels : [];
+
+    const unconnected = channels.filter((ch) => {
+      const conn = String(ch?.connectionState || ch?.raw?.connectionState || '').toLowerCase();
+      const err = String(ch?.errorMessage || ch?.raw?.errorMessage || '').toLowerCase();
+
+      // match explicit 'unconnect' or an error like LoginConnectFailed, or offline with error
+      if (conn.includes('unconnect')) return true;
+      if (err && err.includes('loginconnectfailed')) return true;
+      if (!ch?.online && err) return true;
+      return false;
+    }).map((ch) => ({
+      id: `ch${Number(ch.channel) || Number(ch?.channelId) || ''}`,
+      channel: Number(ch.channel) || Number(ch?.channelId) || null,
+      connectionState: ch.connectionState || ch?.raw?.connectionState || '',
+      errorMessage: ch.errorMessage || ch?.raw?.errorMessage || '',
+      online: Boolean(ch.online),
+      raw: ch.raw || null,
+    }));
+
+    return unconnected;
+  } catch (err) {
+    console.error('[getUnconnectedChannels] error', err?.message);
+    return [];
+  }
+}
+
 export const cameraService = {
   getCameraStatusProbe,
+  getChannelConnectionStates,
+  getUnconnectedChannels,
 
   getCameraChannels: async () => {
     const cachedRows = getCachedCameraRows();

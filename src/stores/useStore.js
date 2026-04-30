@@ -76,7 +76,10 @@ async function fetchCameraSnapshot(set, get) {
 
         try {
             console.log('[useStore.fetchCameraSnapshot] Starting camera fetch...')
-            const rows = await cameraService.getCameraChannels()
+            const [rows, channelStates] = await Promise.all([
+                cameraService.getCameraChannels(),
+                cameraService.getChannelConnectionStates(),
+            ])
             
             const cameras = normalizeCameraRows(rows)
             const onlineChannels = buildOnlineChannels(cameras)
@@ -96,12 +99,16 @@ async function fetchCameraSnapshot(set, get) {
                 cameraStatusByChannel,
                 cameraRecordByChannel,
                 activeChannel: nextActive,
+                channelConnectionStates: channelStates,
+                unconnectedChannels: await cameraService.getUnconnectedChannels(),
                 cameraSnapshot: {
                     cameras,
                     onlineChannels,
                     activeChannel: nextActive,
                     cameraStatusByChannel,
                     cameraRecordByChannel,
+                    channelConnectionStates: channelStates,
+                    unconnectedChannels: await cameraService.getUnconnectedChannels(),
                     fetchedAt: new Date().toISOString(),
                 },
                 isLoadingChannels: false,
@@ -118,12 +125,14 @@ async function fetchCameraSnapshot(set, get) {
                 cameraStatusByChannel: {},
                 cameraRecordByChannel: {},
                 activeChannel: '',
+                channelConnectionStates: { channels: [], onlineCount: 0, totalCount: 0 },
                 cameraSnapshot: {
                     cameras: [],
                     onlineChannels: [],
                     activeChannel: '',
                     cameraStatusByChannel: {},
                     cameraRecordByChannel: {},
+                    channelConnectionStates: { channels: [], onlineCount: 0, totalCount: 0 },
                     fetchedAt: '',
                 },
                 isLoadingChannels: false,
@@ -149,6 +158,8 @@ const createAuthSlice = (set, get) => {
         onlineChannels: [],
         cameraStatusByChannel: {},
         cameraRecordByChannel: {},
+        channelConnectionStates: { channels: [], onlineCount: 0, totalCount: 0 },
+        unconnectedChannels: [],
         activeChannel: '',
         cameraSnapshot: {
             cameras: [],
@@ -156,6 +167,8 @@ const createAuthSlice = (set, get) => {
             activeChannel: '',
             cameraStatusByChannel: {},
             cameraRecordByChannel: {},
+            channelConnectionStates: { channels: [], onlineCount: 0, totalCount: 0 },
+            unconnectedChannels: [],
             fetchedAt: '',
         },
         activeMenu: MENU_CONFIG[0]?.key || 'peopleCounting',
