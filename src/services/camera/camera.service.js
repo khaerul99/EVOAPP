@@ -742,6 +742,14 @@ function toCameraRows(
         `Channel ${index + 1}`,
       );
 
+      const connectionState = firstNonEmpty(
+        probe?.cameraState?.connectionState,
+        probe?.cameraState?.ConnectState,
+        probe?.cameraState?.ConnectStatus,
+        probe?.cameraState?.ConnectionState,
+        "",
+      );
+
       return {
         id: index + 1,
         name: channelName,
@@ -750,7 +758,10 @@ function toCameraRows(
         ip: firstNonEmpty(remote.Address, remote.IPAddress, remote.IP, remote.Ip, "-"),
         port: firstNonEmpty(remote.Port, remote.HttpPort, remote.RtspPort, "37777"),
         status: probe.status || "offline",
-        statusMessage: probe.status === "offline" ? "Status probe failed or disconnected." : "",
+        connectionState,
+        statusMessage: probe.status === "offline"
+          ? "Status probe failed or disconnected."
+          : connectionState || probe.status || "unknown",
         record: Boolean(probe.record),
         registrationNo: firstNonEmpty(remote.DeviceID, remote.RegID, "--"), 
         username: firstNonEmpty(remote.UserName, remote.Username, "admin"),

@@ -120,8 +120,13 @@ const CameraManagement = () => {
                                             <td className="py-4 pr-4">{row.id}</td>
                                             <td className="py-4 pr-4">
                                                 {row.status === 'online' ? (
-                                                    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-success/10">
-                                                        <div className="w-3 h-3 rounded-full bg-success" />
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-success/10">
+                                                            <div className="w-3 h-3 rounded-full bg-success" />
+                                                        </div>
+                                                        <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-navy/70">
+                                                            {row.connectionState ? row.connectionState : 'Online'}
+                                                        </span>
                                                     </div>
                                                 ) : (
                                                     <div className="relative flex items-center justify-center w-6 h-6 rounded-full cursor-pointer bg-warning/10 group">
