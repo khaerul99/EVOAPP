@@ -118,12 +118,6 @@ function getActiveRtspCredentials() {
 function assertRtspCredentials(credentials) {
     const username = normalizeCredential(credentials?.username || "");
     const password = normalizeCredential(credentials?.password || "");
-    console.log('[liveService.assertRtspCredentials] Checking:', { 
-        hasUsername: Boolean(username), 
-        hasPassword: Boolean(password),
-        username: username || 'EMPTY',
-        password: password ? '***' : 'EMPTY'
-    });
     if (!username || !password) {
         throw new Error("Kredensial RTSP belum siap. Silakan login ulang agar user/password RTSP sinkron dengan sesi aktif.");
     }
@@ -253,13 +247,8 @@ function buildLivePlayerUrl({ channel, subtype = 0 }) {
 
 export const liveService = {
     buildLiveStreamSources: ({ channel, subtype = 0 }) => {
-        console.log('[liveService.buildLiveStreamSources] Building stream for channel:', channel, 'subtype:', subtype);
         const liveTemplate = String(import.meta.env.VITE_RTSP_LIVE_URL_TEMPLATE || "").trim();
         const activeCredentials = getActiveRtspCredentials();
-        console.log('[liveService.buildLiveStreamSources] Active credentials:', { 
-            hasUsername: Boolean(activeCredentials.username),
-            hasPassword: Boolean(activeCredentials.password)
-        });
         assertRtspCredentials(activeCredentials);
         const streamName = sanitizeNamePart(`live-ch${channel}-s${subtype}`) || "live-ch1-s0";
         const liveEnvExtraQuery = parseExtraRtspQuery("VITE_RTSP_LIVE_EXTRA_QUERY");
@@ -319,11 +308,6 @@ export const liveService = {
             subtype,
         });
 
-        console.log('[liveService.buildLiveStreamSources] Built successfully:', {
-            streamName,
-            rtspUrl: rtspUrl.substring(0, 80) + '...',
-            livePlayerUrl
-        });
 
         return {
             mode: "live",

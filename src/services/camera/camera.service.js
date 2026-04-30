@@ -1112,12 +1112,7 @@ async function getCameraStatusProbe(channelId = 1) {
     };
   } catch (error) {
     const status = Number(error?.response?.status || 0);
-    console.error("[getCameraStatusProbe] error", {
-      channelId: cleanId,
-      status,
-      message: error?.message,
-      data: error?.response?.data,
-    });
+    // error suppressed to reduce noisy console output
     return {
       channelId: cleanId,
       videoSignal: "unknown",
@@ -1171,8 +1166,6 @@ function buildAddCameraRequest({
 }
 
 async function postAddCameraRequest(payload) {
-  console.log("[cameraService] Sending addCameraByGroup payload:", JSON.stringify(payload, null, 2));
-  
   try {
     const response = await ApiClient.post(
       "/cgi-bin/logicDeviceManager.cgi?action=addCameraByGroup",
@@ -1183,17 +1176,9 @@ async function postAddCameraRequest(payload) {
         },
       },
     );
-
-    console.log("[cameraService] addCameraByGroup response:", response?.data);
     return response?.data;
   } catch (error) {
-    console.error("[cameraService] addCameraByGroup error:", {
-      status: error?.response?.status,
-      statusText: error?.response?.statusText,
-      message: error?.message,
-      response: error?.response?.data,
-      payload,
-    });
+    // suppressed detailed error logging
     throw error;
   }
 }
@@ -1331,7 +1316,7 @@ async function getChannelConnectionStates() {
 
     return parseAllChannelConnectionStates(videoData);
   } catch (error) {
-    console.error("[getChannelConnectionStates] error", error?.message);
+    // suppressed error logging
     return {
       channels: [],
       onlineCount: 0,
@@ -1365,7 +1350,7 @@ async function getUnconnectedChannels() {
 
     return unconnected;
   } catch (err) {
-    console.error('[getUnconnectedChannels] error', err?.message);
+    // suppressed error logging
     return [];
   }
 }
@@ -1394,13 +1379,10 @@ export const cameraService = {
       try {
         const response = await ApiClient.get(path);
         return response;
-      } catch (firstError) {
+        } catch (firstError) {
         const firstStatus = Number(firstError?.response?.status || 0);
         const shouldRetry = firstStatus === 401 || firstStatus === 501;
-        console.error(`[cameraService] ${label} rejected (first):`, {
-          status: firstStatus,
-          message: firstError?.message,
-        });
+        // suppressed first attempt logging
 
         if (!shouldRetry) {
           return { __error: firstError };
@@ -1414,10 +1396,7 @@ export const cameraService = {
           const retried = await ApiClient.get(path);
           return retried;
         } catch (secondError) {
-          console.error(`[cameraService] ${label} rejected (retry):`, {
-            status: Number(secondError?.response?.status || 0),
-            message: secondError?.message,
-          });
+          // suppressed retry attempt logging
           return { __error: secondError };
         }
       }
@@ -1448,7 +1427,7 @@ export const cameraService = {
 
     if (!channelTitleFulfilled && !remoteDeviceFulfilled) {
       const error = channelTitleResult?.__error || remoteDeviceResult?.__error;
-      console.error("[cameraService] Both requests failed:", error);
+      // suppressed error logging for both failed requests
       throw error;
     }
 

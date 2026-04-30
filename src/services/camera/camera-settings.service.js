@@ -4,11 +4,11 @@ import { warmupDigestChallenge } from "../auth/digest-warmup.service";
 const PEOPLE_COUNTING_LOG_PREFIX = "[people-counting-endpoint]";
 
 function logPeopleCountingEndpoint(message, payload) {
-  console.log(`${PEOPLE_COUNTING_LOG_PREFIX} ${message}`, payload);
+  // intentionally no-op to avoid noisy logs in production
 }
 
 function logPeopleCountingEndpointError(message, payload) {
-  console.error(`${PEOPLE_COUNTING_LOG_PREFIX} ${message}`, payload);
+  // intentionally no-op to avoid noisy logs in production
 }
 
 function toEndpointPreview(response) {
