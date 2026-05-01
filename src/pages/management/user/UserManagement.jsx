@@ -32,6 +32,41 @@ const AUTHORITY_OPTIONS = [
   { value: "AuthTaskMag", label: "AuthTaskMag" },
 ];
 
+const GROUP_PERMISSION_SECTIONS = {
+  config: {
+    label: "Config",
+    items: [
+      { label: "System", token: "AuthSysCfg" },
+      { label: "Event", token: "AuthEventCfg" },
+      { label: "Account", token: "AuthUserMag" },
+      { label: "Storage", token: "AuthStoreCfg" },
+      { label: "Network", token: "AuthNetCfg" },
+      { label: "Security", token: "AuthSecurity" },
+      { label: "Camera", token: "AuthRmtDevice" },
+      { label: "Peripheral", token: "AuthPeripheral" },
+      { label: "PTZ", token: "AuthPTZ" },
+    ],
+  },
+  operation: {
+    label: "Operation",
+    items: [
+      { label: "Backup", token: "AuthBackup" },
+      { label: "Maintenance", token: "AuthMaintence" },
+      { label: "Device Maintenance", token: "AuthMaintence" },
+      { label: "Tasks", token: "AuthTaskMag" },
+    ],
+  },
+  control: {
+    label: "Control",
+    items: [{ label: "Manual Control", token: "AuthManuCtr" }],
+  },
+};
+
+function getChannelToken(channelId, action) {
+  const prefix = action === "live" ? "Monitor" : "Replay";
+  return `${prefix}_${String(channelId).padStart(2, "0")}`;
+}
+
 function parseAuthorityValues(authorityText) {
   return String(authorityText || "")
     .split(",")
@@ -64,6 +99,27 @@ function setAuthorityValue(currentValue, token, checked) {
   ].join(",");
 }
 
+function setAuthorityValues(currentValue, tokens, checked) {
+  const values = parseAuthorityValues(currentValue);
+  const preserved = values.filter(
+    (entry) => !tokens.includes(entry),
+  );
+  const tokenSet = new Set(values.filter((entry) => tokens.includes(entry)));
+
+  tokens.forEach((token) => {
+    if (checked) {
+      tokenSet.add(token);
+    } else {
+      tokenSet.delete(token);
+    }
+  });
+
+  return [
+    ...preserved,
+    ...tokens.filter((entry) => tokenSet.has(entry)),
+  ].join(",");
+}
+
 const UserManagement = () => {
   const {
     loading,
@@ -74,16 +130,31 @@ const UserManagement = () => {
 
     isAddOpen,
     isEditOpen,
+    isGroupAuthOpen,
+    isAddGroupOpen,
     formData,
     setFormData,
+    groupFormData,
+    setGroupFormData,
+    groupAuthPassword,
+    setGroupAuthPassword,
+    groupEditorTab,
+    setGroupEditorTab,
+    groupPermissionChannels,
     submitting,
+    currentUsername,
     filteredUsers,
     loadAllUsers,
     openAddModal,
+    openAddGroupAuthModal,
     openEditModal,
     closeAddModal,
     closeEditModal,
+    closeGroupAuthModal,
+    closeAddGroupModal,
+    confirmGroupAuth,
     handleAddUser,
+    handleAddGroup,
     handleModifyUser,
     handleDeleteUser,
 
@@ -104,14 +175,17 @@ const UserManagement = () => {
     setSelectedUserForAttribute,
     selectedUserForPermission,
     setSelectedUserForPermission,
-    onvifAvailable,
-    onvifUsers,
     isUserManagementSupported,
   } = useUserManagement();
 
   const isAttributeTab = activeTab === "attribute";
   const isUserSelected = selectedAttributeInfo.isUserNode;
   const canShowPermissionTab = isUserSelected && Boolean(selectedUserForPermission);
+  const selectedGroupAuthorities = parseAuthorityValues(groupFormData.authority);
+
+  const getSectionTokens = (sectionKey) => GROUP_PERMISSION_SECTIONS[sectionKey].items.map((item) => item.token);
+  const areSectionTokensChecked = (sectionKey) => getSectionTokens(sectionKey).every((token) => selectedGroupAuthorities.includes(token));
+  const isChannelChecked = (token) => selectedGroupAuthorities.includes(token);
 
   return (
     <div className="space-y-6 duration-500 animate-in fade-in md:space-y-8">
@@ -149,6 +223,15 @@ const UserManagement = () => {
           </button>
           <button
             type="button"
+            onClick={openAddGroupAuthModal}
+            disabled={!isUserManagementSupported}
+            className="inline-flex items-center gap-2 px-4 py-3 text-xs font-black tracking-widest uppercase border shadow-sm rounded-xl border-navy/20 text-navy hover:bg-navy/5 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Shield size={16} />
+            Add Group
+          </button>
+          <button
+            type="button"
             onClick={openAddModal}
             disabled={!isUserManagementSupported}
             className="inline-flex items-center gap-2 px-4 py-3 text-xs font-black tracking-widest text-white uppercase shadow-lg rounded-xl bg-navy shadow-navy/10 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -168,7 +251,7 @@ const UserManagement = () => {
       )}
 
       {!isUserManagementSupported && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold text-amber-800">
+        <div className="p-4 text-xs font-bold border rounded-2xl border-amber-200 bg-amber-50 text-amber-800">
           ⚠️ Perangkat tidak mendukung penambahan atau perubahan user. Fitur Add User dan Edit User telah dinonaktifkan.
         </div>
       )}
@@ -191,7 +274,7 @@ const UserManagement = () => {
             </div>
           </div>
 
-          <div className="p-3">
+            <div className="p-3">
             <button
               type="button"
               onClick={() => {
@@ -199,7 +282,8 @@ const UserManagement = () => {
                 setSelectedUserForAttribute(null);
                 setSelectedUserForPermission(null);
                 setActiveTab("attribute");
-                setIsTreeExpanded(true);
+                // Toggle tree expansion so header can both open and close
+                setIsTreeExpanded((prev) => !prev);
               }}
               className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition-colors border ${isTreeExpanded ? "border-navy/80 bg-navy/5 text-navy" : "border-navy/15 bg-white text-navy/60 hover:bg-navy/5 hover:text-navy"}`}
             >
@@ -286,63 +370,6 @@ const UserManagement = () => {
                   );
                 })}
 
-                {onvifAvailable && (
-                  <div className="p-2 border rounded-2xl border-navy/5 bg-background/60">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedGroup("onvif");
-                        setSelectedUserForAttribute(null);
-                        setSelectedUserForPermission(null);
-                        toggleGroupExpanded("onvif");
-                        setActiveTab("attribute");
-                      }}
-                      className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition-colors ${selectedGroup === "onvif" ? "bg-white text-navy shadow-sm" : "text-navy/60 hover:bg-white hover:text-navy"}`}
-                    >
-                      <span className="flex items-center gap-2">
-                        {isGroupExpanded("onvif") ? (
-                          <ChevronDown size={14} />
-                        ) : (
-                          <ChevronRight size={14} />
-                        )}
-                        <span className="text-xs font-black tracking-widest uppercase">
-                          Onvif
-                        </span>
-                      </span>
-                      <span className="rounded-full bg-navy/5 px-2 py-1 text-[10px] font-black text-navy/50">
-                        {onvifUsers.length}
-                      </span>
-                    </button>
-
-                    {isGroupExpanded("onvif") && (
-                      <div className="pl-4 mt-2 space-y-1">
-                        {onvifUsers.map((user) => (
-                          <button
-                            key={`onvif-${user.name}`}
-                            type="button"
-                            onClick={() => {
-                              setSelectedGroup("onvif");
-                              setSelectedUserForAttribute(user.name);
-                              setSelectedUserForPermission(null);
-                              setActiveTab("attribute");
-                            }}
-                            className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition-colors ${selectedGroup === "onvif" && selectedUserForAttribute === user.name ? "bg-white text-navy shadow-sm" : "text-navy/45 hover:bg-white hover:text-navy"}`}
-                          >
-                            <span className="flex items-center gap-2">
-                              <Users size={14} />
-                              <span className="text-[11px] font-bold">
-                                {user.name}
-                              </span>
-                            </span>
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-navy/25">
-                              View
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -480,17 +507,7 @@ const UserManagement = () => {
                               </td>
                             </tr>
                           ))}
-                          {onvifAvailable && (
-                            <tr className="text-sm text-navy/80">
-                              <td className="px-4 py-4 font-medium text-center border-b border-navy/5">
-                                Onvif
-                              </td>
-                              <td className="px-4 py-4 font-medium text-center border-b border-navy/5">
-                                {onvifUsers.length}
-                              </td>
-                            </tr>
-                          )}
-                          {userGroups.length === 0 && !onvifAvailable && (
+                          {userGroups.length === 0 && (
                             <tr>
                               <td
                                 className="px-4 py-8 text-sm text-center text-navy/30"
@@ -580,6 +597,298 @@ const UserManagement = () => {
           <div className="inline-flex items-center gap-2 text-xs font-bold text-navy/50">
             <Loader2 size={16} className="animate-spin" />
             {loading ? "Memuat data user..." : "Menyimpan perubahan..."}
+          </div>
+        </div>
+      )}
+
+      {isGroupAuthOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl p-6 bg-white border shadow-2xl rounded-3xl border-navy/10 md:p-8">
+            <h3 className="mb-2 text-sm font-black tracking-widest uppercase text-navy">
+              Authentication Password
+            </h3>
+            <p className="mb-6 text-[11px] font-semibold text-navy/50">
+              Masukkan password akun aktif sebelum menambahkan group baru.
+            </p>
+
+            <form onSubmit={confirmGroupAuth} className="space-y-4">
+              <input
+                type="text"
+                value={currentUsername}
+                readOnly
+                className="w-full px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy/60"
+                placeholder="username"
+              />
+              <input
+                type="password"
+                value={groupAuthPassword}
+                onChange={(event) => setGroupAuthPassword(event.target.value)}
+                placeholder="password"
+                className="w-full px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
+                required
+              />
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeGroupAuthModal}
+                  className="px-4 py-2 text-xs font-black tracking-widest uppercase border rounded-xl border-navy/10 text-navy/70"
+                  disabled={submitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center px-4 py-2 text-xs font-black tracking-widest text-white uppercase rounded-xl bg-navy disabled:opacity-60"
+                  disabled={submitting}
+                >
+                  OK
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isAddGroupOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl p-6 bg-white border shadow-2xl rounded-3xl border-navy/10 md:p-8">
+            <h3 className="mb-2 text-sm font-black tracking-widest uppercase text-navy">
+              Add New Group
+            </h3>
+            <p className="mb-6 text-[11px] font-semibold text-navy/50">
+              Menggunakan endpoint /cgi-bin/api/userManager/addGroup.
+            </p>
+
+            <form onSubmit={handleAddGroup} className="space-y-4">
+              <div className="flex items-center gap-4 border-b border-navy/10">
+                <button
+                  type="button"
+                  onClick={() => setGroupEditorTab("attribute")}
+                  className={`border-b-2 px-1 py-2 text-sm font-semibold ${groupEditorTab === "attribute" ? "border-navy text-navy" : "border-transparent text-navy/40"}`}
+                >
+                  Attribute
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGroupEditorTab("permission")}
+                  className={`border-b-2 px-1 py-2 text-sm font-semibold ${groupEditorTab === "permission" ? "border-navy text-navy" : "border-transparent text-navy/40"}`}
+                >
+                  Permission
+                </button>
+              </div>
+
+              {groupEditorTab === "attribute" ? (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-[220px_1fr] md:items-start">
+                  <label className="text-sm font-medium text-navy/80">Name</label>
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={groupFormData.name}
+                      onChange={(event) =>
+                        setGroupFormData((prev) => ({
+                          ...prev,
+                          name: event.target.value,
+                        }))
+                      }
+                      placeholder="group name"
+                      className="w-full px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
+                      required
+                    />
+                    <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      Username can include numbers, letters, underlines, dots and @.
+                    </p>
+                  </div>
+
+                  <label className="text-sm font-medium text-navy/80">Parent Node</label>
+                  <input
+                    type="text"
+                    value="EvoSecure"
+                    readOnly
+                    className="w-full px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy/60"
+                  />
+
+                  <label className="text-sm font-medium text-navy/80">Description</label>
+                  <textarea
+                    value={groupFormData.memo}
+                    onChange={(event) =>
+                      setGroupFormData((prev) => ({
+                        ...prev,
+                        memo: event.target.value,
+                      }))
+                    }
+                    placeholder="description / memo"
+                    rows={3}
+                    className="w-full px-4 py-2 text-xs font-bold border outline-none resize-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_1fr_1.75fr]">
+                  {Object.entries(GROUP_PERMISSION_SECTIONS).map(([sectionKey, section]) => {
+                    const sectionTokens = getSectionTokens(sectionKey);
+                    const selectAllChecked = sectionTokens.length > 0 && sectionTokens.every((token) => selectedGroupAuthorities.includes(token));
+
+                    return (
+                      <div key={sectionKey} className="border border-navy/10 bg-white">
+                        <div className="flex items-center justify-between px-4 py-3">
+                          <h3 className="text-lg font-semibold text-navy/90">{section.label}</h3>
+                          <label className="inline-flex items-center gap-2 text-xs font-medium text-navy/60">
+                            <input
+                              type="checkbox"
+                              checked={selectAllChecked}
+                              onChange={(event) =>
+                                setGroupFormData((previous) => ({
+                                  ...previous,
+                                  authority: setAuthorityValues(previous.authority, sectionTokens, event.target.checked),
+                                }))
+                              }
+                              className="h-4 w-4 rounded-sm border-gray-300 bg-gray-100 text-gray-400 accent-gray-300"
+                            />
+                            Select All
+                          </label>
+                        </div>
+                        <div className="space-y-3 border-t border-navy/10 px-4 py-3">
+                          {section.items.map((item) => {
+                            const checked = selectedGroupAuthorities.includes(item.token);
+                            return (
+                              <label key={`${sectionKey}-${item.label}`} className="flex items-center gap-2 text-sm text-navy/70">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(event) =>
+                                    setGroupFormData((previous) => ({
+                                      ...previous,
+                                      authority: setAuthorityValue(
+                                        previous.authority,
+                                        item.token,
+                                        event.target.checked,
+                                      ),
+                                    }))
+                                  }
+                                  className="h-4 w-4 rounded-sm border-gray-300 bg-gray-100 text-gray-400 accent-gray-300"
+                                />
+                                <span>{item.label}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <div className="border border-navy/10 bg-white">
+                    <div className="flex items-center justify-between px-4 py-3">
+                      <h3 className="text-lg font-semibold text-navy/90">Channel</h3>
+                      <label className="inline-flex items-center gap-2 text-xs font-medium text-navy/60">
+                        <input
+                          type="checkbox"
+                          checked={
+                            groupPermissionChannels.length > 0
+                            && groupPermissionChannels.every((channel) => {
+                              const liveToken = getChannelToken(channel.id, "live");
+                              const playbackToken = getChannelToken(channel.id, "playback");
+                              return isChannelChecked(liveToken) && isChannelChecked(playbackToken);
+                            })
+                          }
+                          onChange={(event) => {
+                            const nextAuthorities = groupPermissionChannels.flatMap((channel) => [
+                              getChannelToken(channel.id, "live"),
+                              getChannelToken(channel.id, "playback"),
+                            ]);
+
+                            setGroupFormData((previous) => ({
+                              ...previous,
+                              authority: setAuthorityValues(previous.authority, nextAuthorities, event.target.checked),
+                            }));
+                          }}
+                          className="h-4 w-4 rounded-sm border-gray-300 bg-gray-100 text-gray-400 accent-gray-300"
+                        />
+                        Select All
+                      </label>
+                    </div>
+                    <div className="space-y-3 border-t border-navy/10 px-4 py-3">
+                      <div className="grid grid-cols-[1.7fr_1fr_1fr] text-sm text-navy/60">
+                        <div>Channel</div>
+                        <div>Live</div>
+                        <div>Playback</div>
+                      </div>
+
+                      {groupPermissionChannels.map((channel) => {
+                        const liveToken = getChannelToken(channel.id, "live");
+                        const playbackToken = getChannelToken(channel.id, "playback");
+                        const liveChecked = selectedGroupAuthorities.includes(liveToken);
+                        const playbackChecked = selectedGroupAuthorities.includes(playbackToken);
+
+                        return (
+                          <div key={`group-channel-${channel.id}`} className="grid grid-cols-[1.7fr_1fr_1fr] items-start text-sm text-navy/60">
+                            <div>{channel.id}-{channel.name}</div>
+                            <label className="inline-flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={liveChecked}
+                                onChange={(event) =>
+                                  setGroupFormData((previous) => ({
+                                    ...previous,
+                                    authority: setAuthorityValue(
+                                      previous.authority,
+                                      liveToken,
+                                      event.target.checked,
+                                    ),
+                                  }))
+                                }
+                                className="h-4 w-4 rounded-sm border-gray-300 bg-gray-100 text-gray-400 accent-gray-300"
+                              />
+                              <span>Enable</span>
+                            </label>
+                            <label className="inline-flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={playbackChecked}
+                                onChange={(event) =>
+                                  setGroupFormData((previous) => ({
+                                    ...previous,
+                                    authority: setAuthorityValue(
+                                      previous.authority,
+                                      playbackToken,
+                                      event.target.checked,
+                                    ),
+                                  }))
+                                }
+                                className="h-4 w-4 rounded-sm border-gray-300 bg-gray-100 text-gray-400 accent-gray-300"
+                              />
+                              <span>Enable</span>
+                            </label>
+                          </div>
+                        );
+                      })}
+
+                      <div className="pt-1 text-sm text-navy/80">Total {groupPermissionChannels.length} items</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeAddGroupModal}
+                  className="px-4 py-2 text-xs font-black tracking-widest uppercase border rounded-xl border-navy/10 text-navy/70"
+                  disabled={submitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center px-4 py-2 text-xs font-black tracking-widest text-white uppercase rounded-xl bg-navy disabled:opacity-60"
+                  disabled={submitting}
+                >
+                  {submitting && (
+                    <Loader2 size={14} className="mr-2 animate-spin" />
+                  )}
+                  Submit Add Group
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
