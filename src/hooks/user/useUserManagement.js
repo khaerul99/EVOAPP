@@ -92,6 +92,10 @@ export function useUserManagement() {
     const [selectedUserForPermission, setSelectedUserForPermission] = useState(null);
     const [isUserManagementSupported, setIsUserManagementSupported] = useState(true);
     const [currentUsername] = useState(() => String(authStore.getState()?.auth?.username || '').trim());
+    const [isDeleteAuthOpen, setIsDeleteAuthOpen] = useState(false);
+    const [deleteAuthPassword, setDeleteAuthPassword] = useState('');
+    const [pendingDeleteTarget, setPendingDeleteTarget] = useState(null);
+    const [deleteNotification, setDeleteNotification] = useState(null);
 
     const loadAllUsers = useCallback(async () => {
         try {
@@ -201,6 +205,12 @@ export function useUserManagement() {
         });
     }, [userGroups]);
 
+    useEffect(() => {
+        if (isDeleteAuthOpen) {
+            setDeleteAuthPassword('');
+        }
+    }, [isDeleteAuthOpen]);
+
     const selectedGroupUsers = useMemo(() => {
         if (selectedGroup === 'all') {
             return users;
@@ -302,6 +312,12 @@ export function useUserManagement() {
         setIsAddGroupOpen(false);
         setGroupFormData(createInitialGroupFormState());
         setGroupEditorTab('attribute');
+    }, []);
+
+    const closeDeleteAuthModal = useCallback(() => {
+        setIsDeleteAuthOpen(false);
+        setDeleteAuthPassword('');
+        setPendingDeleteTarget(null);
     }, []);
 
     const openAddGroupAuthModal = useCallback(() => {
@@ -487,29 +503,120 @@ export function useUserManagement() {
         }
     }, [closeEditModal, formData, loadAllUsers]);
 
-    const handleDeleteUser = useCallback(async (user) => {
+    const handleDeleteUser = useCallback(async ({ user, authPassword = '' }) => {
         const username = String(user?.name || '').trim();
         if (!username || username === '-') {
             setStatusMessage('Nama user tidak valid untuk dihapus.');
             return;
         }
 
-        const confirmed = window.confirm(`Hapus user ${username}?`);
-        if (!confirmed) {
+        if (!String(authPassword || '').trim()) {
+            setStatusMessage('Password autentikasi wajib diisi.');
             return;
         }
 
-        const extraQuery = window.prompt('Tambahkan query string opsional untuk delete (contoh: force=true). Kosongkan jika tidak perlu:', '');
-
         try {
+            setSubmitting(true);
             setStatusMessage('');
-            await userService.deleteUser({ name: username, extraQuery: extraQuery || '' });
+            await userService.deleteUser({ name: username, authPassword });
             await loadAllUsers();
             setStatusMessage('User berhasil dihapus.');
+            setDeleteNotification({
+                type: 'success',
+                title: 'User Dihapus',
+                message: `User "${username}" telah berhasil dihapus.`,
+            });
         } catch {
             setStatusMessage('Gagal menghapus user dari perangkat.');
+        } finally {
+            setSubmitting(false);
         }
     }, [loadAllUsers]);
+
+    const canDeleteGroup = useCallback((group) => {
+        const groupName = String(group?.groupName || '').trim().toLowerCase();
+        if (!groupName) {
+            return false;
+        }
+
+        const reservedGroups = new Set(['evosecure', 'admin', 'onvif']);
+        if (reservedGroups.has(groupName)) {
+            return false;
+        }
+
+        return Array.isArray(group?.users) && group.users.length === 0;
+    }, []);
+
+    const handleDeleteGroup = useCallback(async ({ group, authPassword = '' }) => {
+        const groupName = String(group?.groupName || '').trim();
+        if (!canDeleteGroup(group)) {
+            setStatusMessage('Group hanya bisa dihapus jika kosong.');
+            return;
+        }
+
+        if (!String(authPassword || '').trim()) {
+            setStatusMessage('Password autentikasi wajib diisi.');
+            return;
+        }
+
+        try {
+            setSubmitting(true);
+            setStatusMessage('');
+            await userService.deleteGroup({ name: groupName, authPassword });
+            await loadAllUsers();
+            setStatusMessage('Group berhasil dihapus.');
+            setDeleteNotification({
+                type: 'success',
+                title: 'Group Dihapus',
+                message: `Group "${groupName}" telah berhasil dihapus.`,
+            });
+        } catch {
+            setStatusMessage('Gagal menghapus group. Pastikan group kosong dan password autentikasi benar.');
+        } finally {
+            setSubmitting(false);
+        }
+    }, [canDeleteGroup, loadAllUsers]);
+
+    const openDeleteAuthModal = useCallback((target) => {
+        if (!target) {
+            return;
+        }
+
+        if (target.kind === 'group' && !canDeleteGroup(target.group)) {
+            setStatusMessage('Group hanya bisa dihapus jika kosong.');
+            return;
+        }
+
+        setPendingDeleteTarget(target);
+        setDeleteAuthPassword('');
+        setIsDeleteAuthOpen(true);
+    }, [canDeleteGroup]);
+
+    const confirmDeleteAuth = useCallback(async (event) => {
+        event.preventDefault();
+
+        const authPassword = String(deleteAuthPassword || '').trim();
+        if (!authPassword) {
+            setStatusMessage('Password autentikasi wajib diisi.');
+            return;
+        }
+
+        if (!pendingDeleteTarget) {
+            setStatusMessage('Target hapus tidak ditemukan.');
+            return;
+        }
+
+        try {
+            if (pendingDeleteTarget.kind === 'user') {
+                await handleDeleteUser({ user: pendingDeleteTarget.user, authPassword });
+            } else if (pendingDeleteTarget.kind === 'group') {
+                await handleDeleteGroup({ group: pendingDeleteTarget.group, authPassword });
+            }
+            closeDeleteAuthModal();
+        } catch {
+            // handler already sets message
+        }
+    }, [closeDeleteAuthModal, deleteAuthPassword, handleDeleteGroup, handleDeleteUser, pendingDeleteTarget]);
 
 
     return {
@@ -561,13 +668,23 @@ export function useUserManagement() {
         closeEditModal,
         closeGroupAuthModal,
         closeAddGroupModal,
+        isDeleteAuthOpen,
+        deleteAuthPassword,
+        setDeleteAuthPassword,
+        closeDeleteAuthModal,
+        openDeleteAuthModal,
+        confirmDeleteAuth,
         confirmGroupAuth,
         handleAddUser,
         handleAddGroup,
         handleModifyUser,
         handleDeleteUser,
+        canDeleteGroup,
+        handleDeleteGroup,
         selectedUserForPermission,
         setSelectedUserForPermission,
         isUserManagementSupported,
+        deleteNotification,
+        setDeleteNotification,
     };
 }

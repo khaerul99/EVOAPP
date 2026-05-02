@@ -649,6 +649,32 @@ export const userService = {
         return response?.data;
     },
 
+    deleteGroup: async ({ name, authPassword = '' }) => {
+        const groupName = String(name || '').trim();
+        if (!groupName) {
+            throw new Error('Nama group wajib diisi.');
+        }
+
+        const requestBody = {
+            name: groupName,
+        };
+
+        const state = authStore.getState();
+        const managerName = String(state?.auth?.username || '').trim();
+        const password = String(authPassword || '').trim();
+
+        if (managerName) {
+            requestBody.managerName = managerName;
+        }
+        if (password) {
+            requestBody.password = password;
+            requestBody.managerPwd = password;
+        }
+
+        const response = await ApiClient.post('/cgi-bin/api/userManager/deleteGroup', requestBody);
+        return response?.data;
+    },
+
     getUserByName: async (name) => {
         const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
             params: {
@@ -691,11 +717,17 @@ export const userService = {
         }
     },
 
-    deleteUser: async ({ name, extraQuery = '' }) => {
+    deleteUser: async ({ name, extraQuery = '', authPassword = '' }) => {
+        const state = authStore.getState();
+        const managerName = String(state?.auth?.username || '').trim();
+        const password = String(authPassword || '').trim();
+
         const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
             params: {
                 action: 'deleteUser',
                 name,
+                ...(managerName ? { managerName } : {}),
+                ...(password ? { password, managerPwd: password } : {}),
                 ...parseQueryStringInput(extraQuery),
             },
         });
