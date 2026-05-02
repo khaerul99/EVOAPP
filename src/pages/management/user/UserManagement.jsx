@@ -218,7 +218,9 @@ const UserManagement = () => {
   const isChannelChecked = (token) => selectedGroupAuthorities.includes(token);
 
   const [showDeletePassword, setShowDeletePassword] = React.useState(false);
+  const [showGroupPassword, setShowGroupPassword] = React.useState(false);
   const deletePasswordFormRef = React.useRef(null);
+  const groupPasswordFormRef = React.useRef(null);
 
   React.useEffect(() => {
     if (!isDeleteAuthOpen) {
@@ -260,6 +262,46 @@ const UserManagement = () => {
     return () => clearTimeout(timeoutId);
   }, [deleteNotification, setDeleteNotification]);
 
+  React.useEffect(() => {
+    if (!isGroupAuthOpen) {
+      setShowGroupPassword(false);
+      return;
+    }
+
+    // Force clear password field and reset form
+    if (groupPasswordFormRef.current) {
+      groupPasswordFormRef.current.reset();
+    }
+    
+    // Explicitly clear the password input
+    setGroupAuthPassword('');
+    
+    // Use setTimeout to ensure browser autocomplete doesn't override after render
+    const timeoutId = setTimeout(() => {
+      if (groupPasswordFormRef.current) {
+        const passwordInput = groupPasswordFormRef.current.querySelector('input[type="password"], input[type="text"][placeholder="password"]');
+        if (passwordInput) {
+          passwordInput.value = '';
+          setGroupAuthPassword('');
+        }
+      }
+    }, 0);
+
+    return () => clearTimeout(timeoutId);
+  }, [isGroupAuthOpen]);
+
+  React.useEffect(() => {
+    if (isGroupAuthOpen || isDeleteAuthOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isGroupAuthOpen, isDeleteAuthOpen]);
+
   return (
     <div className="space-y-6 duration-500 animate-in fade-in md:space-y-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -298,9 +340,9 @@ const UserManagement = () => {
             <button
               type="button"
               onClick={openAddGroupAuthModal}
-              disabled={!isUserManagementSupported}
+              disabled={!isUserManagementSupported || !isTreeExpanded || selectedGroup !== "all"}
               className="inline-flex items-center justify-center w-10 h-10 transition-colors border group rounded-xl border-navy/10 text-navy/70 hover:bg-navy/5 hover:text-navy disabled:cursor-not-allowed disabled:opacity-40"
-              title="Add Group"
+              title={!isTreeExpanded ? "Expand EvoSecure first" : selectedGroup !== "all" ? "View all groups to add" : "Add Group"}
               aria-label="Add Group"
             >
               <Shield size={16} />
@@ -689,7 +731,7 @@ const UserManagement = () => {
       )}
 
       {isGroupAuthOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
+        <div className="fixed top-[-40px] left-0 right-0 bottom-0 z-[100] min-h-screen w-screen flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
           <div className="w-full max-w-xl p-6 bg-white border shadow-2xl rounded-3xl border-navy/10 md:p-8">
             <h3 className="mb-2 text-sm font-black tracking-widest uppercase text-navy">
               Authentication Password
@@ -698,22 +740,45 @@ const UserManagement = () => {
               Masukkan password akun aktif sebelum menambahkan group baru.
             </p>
 
-            <form onSubmit={confirmGroupAuth} className="space-y-4">
+            <form ref={groupPasswordFormRef} onSubmit={confirmGroupAuth} className="space-y-4" autoComplete="off" noValidate>
               <input
                 type="text"
                 value={currentUsername}
                 readOnly
                 className="w-full px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy/60"
                 placeholder="username"
+                autoComplete="off"
               />
-              <input
-                type="password"
-                value={groupAuthPassword}
-                onChange={(event) => setGroupAuthPassword(event.target.value)}
-                placeholder="password"
-                className="w-full px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
-                required
-              />
+              <div className="relative">
+                <input
+                  key={isGroupAuthOpen ? 'open' : 'closed'}
+                  type={showGroupPassword ? "text" : "password"}
+                  value={groupAuthPassword}
+                  onChange={(event) => setGroupAuthPassword(event.target.value)}
+                  placeholder="password"
+                  className="w-full px-4 py-2 pr-10 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
+                  required
+                  autoFocus
+                  autoComplete="new-password"
+                  name="auth_group_pass"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  spellCheck="false"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowGroupPassword(!showGroupPassword)}
+                  className="absolute transition-colors transform -translate-y-1/2 right-3 top-1/2 text-navy/50 hover:text-navy/70"
+                  tabIndex={-1}
+                  title={showGroupPassword ? "Hide password" : "Show password"}
+                >
+                  {showGroupPassword ? (
+                    <EyeOff size={16} />
+                  ) : (
+                    <Eye size={16} />
+                  )}
+                </button>
+              </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
@@ -738,7 +803,7 @@ const UserManagement = () => {
       )}
 
       {isDeleteAuthOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
+        <div className="fixed top-[-40px] left-0 right-0 bottom-0 z-[100] min-h-screen w-screen flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
           <div className="w-full max-w-xl p-6 bg-white border shadow-2xl rounded-3xl border-navy/10 md:p-8">
             <h3 className="mb-2 text-sm font-black tracking-widest uppercase text-navy">
               Authentication Password
@@ -810,7 +875,7 @@ const UserManagement = () => {
       )}
 
       {isAddGroupOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
+        <div className="fixed top-[-40px] inset-0 z-[100] flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
           <div className="w-full max-w-2xl p-6 bg-white border shadow-2xl rounded-3xl border-navy/10 md:p-8">
             <h3 className="mb-2 text-sm font-black tracking-widest uppercase text-navy">
               Add New Group
@@ -1053,7 +1118,7 @@ const UserManagement = () => {
       )}
 
       {(isAddOpen || isEditOpen) && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
+        <div className="fixed top-[-40px] inset-0 z-[100] flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
           <div className="w-full max-w-2xl p-6 bg-white border shadow-2xl rounded-3xl border-navy/10 md:p-8">
             <h3 className="mb-2 text-sm font-black tracking-widest uppercase text-navy">
               {isAddOpen ? "Add New User" : "Modify User"}
