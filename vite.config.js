@@ -28,10 +28,11 @@ export default defineConfig(({ mode }) => {
     })
 
     proxy.on('proxyRes', (proxyRes) => {
-      const digestHeader = proxyRes.headers['www-authenticate']
+      const digestHeader = proxyRes.headers['www-authenticate'] || proxyRes.headers['WWW-Authenticate']
       if (digestHeader) {
-        proxyRes.headers['x-www-authenticate'] = digestHeader
+        proxyRes.headers['x-www-authenticate'] = Array.isArray(digestHeader) ? digestHeader.join(', ') : digestHeader
         delete proxyRes.headers['www-authenticate']
+        delete proxyRes.headers['WWW-Authenticate']
       }
     })
   }

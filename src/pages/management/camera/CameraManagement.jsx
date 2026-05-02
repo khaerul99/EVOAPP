@@ -1,7 +1,8 @@
 import React from 'react';
 import {
     Plus, Layout, Grid, List, MoreHorizontal,
-    Edit3, Trash2, Search, Filter, X, ChevronLeft, ChevronRight, AlertTriangle
+    Edit3, Trash2, Search, Filter, X, ChevronLeft, ChevronRight, AlertTriangle,
+    Eye, EyeOff
 } from 'lucide-react';
 import { useCameraManagement } from '../../../hooks/camera/useCameraManagement';
 
@@ -25,6 +26,10 @@ const CameraManagement = () => {
         isDigestRetrying,
         newCamera,
         setNewCamera,
+        showAddPassword,
+        setShowAddPassword,
+        emptyChannelOptions,
+        manufacturerOptions,
         paginatedCameras,
         filteredCameras,
         itemsPerPage,
@@ -115,8 +120,13 @@ const CameraManagement = () => {
                                             <td className="py-4 pr-4">{row.id}</td>
                                             <td className="py-4 pr-4">
                                                 {row.status === 'online' ? (
-                                                    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-success/10">
-                                                        <div className="w-3 h-3 rounded-full bg-success" />
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-success/10">
+                                                            <div className="w-3 h-3 rounded-full bg-success" />
+                                                        </div>
+                                                        <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-navy/70">
+                                                            {row.connectionState ? row.connectionState : 'Online'}
+                                                        </span>
                                                     </div>
                                                 ) : (
                                                     <div className="relative flex items-center justify-center w-6 h-6 rounded-full cursor-pointer bg-warning/10 group">
@@ -258,7 +268,7 @@ const CameraManagement = () => {
                         <div className="flex items-center justify-between p-6 border-b border-navy/5 bg-background/50">
                             <div>
                                 <h3 className="text-lg font-black tracking-tight uppercase text-navy">Add Device</h3>
-                                <p className="text-[10px] font-bold text-navy/40 uppercase tracking-widest mt-1">/cgi-bin/configManager.cgi?action=setConfig</p>
+                                <p className="text-[10px] font-bold text-navy/40 uppercase tracking-widest mt-1">/cgi-bin/configManager.cgi?action=setConfig&amp;RemoteDevice[n].*</p>
                             </div>
                             <button onClick={closeAddPopup} className="p-2 transition-colors hover:bg-white rounded-xl text-navy/40 hover:text-navy">
                                 <X size={20} />
@@ -297,20 +307,38 @@ const CameraManagement = () => {
                                         <div className="flex gap-3">
                                             <select
                                                 value={newCamera.channelMode}
-                                                onChange={e => setNewCamera({...newCamera, channelMode: e.target.value})}
+                                                onChange={e => setNewCamera({
+                                                    ...newCamera,
+                                                    channelMode: e.target.value,
+                                                    channelIndex: e.target.value === 'manual' && emptyChannelOptions[0]?.value
+                                                        ? emptyChannelOptions[0].value
+                                                        : newCamera.channelIndex,
+                                                })}
                                                 className="w-full px-4 py-3 text-xs font-bold transition-all border outline-none appearance-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
                                             >
                                                 <option value="auto">Auto Allocation</option>
-                                                <option value="manual">Manual</option>
+                                                <option value="manual">Manual - Empty Channels</option>
                                             </select>
-                                            {newCamera.channelMode === 'manual' && (
-                                                <input
-                                                    type="number"
-                                                    min="0"
+                                            {newCamera.channelMode === 'auto' ? (
+                                                <div className="flex items-center px-4 py-3 text-xs font-bold text-navy/60 bg-background border border-navy/5 rounded-xl w-44">
+                                                    {emptyChannelOptions[0]?.label || 'No empty slots'}
+                                                </div>
+                                            ) : (
+                                                <select
                                                     value={newCamera.channelIndex}
                                                     onChange={e => setNewCamera({...newCamera, channelIndex: e.target.value})}
-                                                    className="px-4 py-3 font-mono text-xs font-bold tracking-tight transition-all border outline-none w-28 bg-background border-navy/5 rounded-xl focus:border-navy/20"
-                                                />
+                                                    className="px-4 py-3 text-xs font-bold transition-all border outline-none w-44 bg-background border-navy/5 rounded-xl focus:border-navy/20"
+                                                >
+                                                    {emptyChannelOptions.length > 0 ? (
+                                                        emptyChannelOptions.map((option) => (
+                                                            <option key={option.value} value={option.value}>
+                                                                {option.label}
+                                                            </option>
+                                                        ))
+                                                    ) : (
+                                                        <option value="1">No empty channel available</option>
+                                                    )}
+                                                </select>
                                             )}
                                         </div>
                                     </div>
@@ -321,11 +349,9 @@ const CameraManagement = () => {
                                             value={newCamera.manufacturer} onChange={e => setNewCamera({...newCamera, manufacturer: e.target.value})}
                                             className="w-full px-4 py-3 text-xs font-bold transition-all border outline-none appearance-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
                                         >
-                                            <option value="Private">Private</option>
-                                            <option value="Onvif">Onvif Generic</option>
-                                            <option value="Dahua">Dahua</option>
-                                            <option value="Hikvision">Hikvision</option>
-                                            <option value="Axis">Axis</option>
+                                            {manufacturerOptions.map((option) => (
+                                                <option key={option.value} value={option.value}>{option.label}</option>
+                                            ))}
                                         </select>
                                     </div>
 
@@ -359,11 +385,21 @@ const CameraManagement = () => {
 
                                     <div>
                                         <label className="block text-[10px] font-black uppercase tracking-widest text-navy/60 mb-2">Password</label>
-                                        <input 
-                                            type="password" required
-                                            value={newCamera.password} onChange={e => setNewCamera({...newCamera, password: e.target.value})}
-                                            className="w-full px-4 py-3 text-xs font-bold transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
-                                        />
+                                        <div className="relative">
+                                            <input 
+                                                type={showAddPassword ? 'text' : 'password'} required
+                                                value={newCamera.password} onChange={e => setNewCamera({...newCamera, password: e.target.value})}
+                                                className="w-full px-4 py-3 pr-12 text-xs font-bold transition-all border outline-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowAddPassword((value) => !value)}
+                                                className="absolute inset-y-0 right-0 flex items-center justify-center w-10 text-navy/40 hover:text-navy"
+                                                aria-label={showAddPassword ? 'Hide password' : 'Show password'}
+                                            >
+                                                {showAddPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <div>
@@ -471,10 +507,9 @@ const CameraManagement = () => {
                                             value={editCamera.manufacture} onChange={e => setEditCamera({...editCamera, manufacture: e.target.value})}
                                             className="w-full px-4 py-3 text-xs font-bold transition-all border outline-none appearance-none bg-background border-navy/5 rounded-xl focus:border-navy/20"
                                         >
-                                            <option value="Onvif">Onvif Generic</option>
-                                            <option value="Dahua">Dahua</option>
-                                            <option value="Hikvision">Hikvision</option>
-                                            <option value="Axis">Axis</option>
+                                            {manufacturerOptions.map((option) => (
+                                                <option key={option.value} value={option.value}>{option.label}</option>
+                                            ))}
                                         </select>
                                     </div>
                                 </div>

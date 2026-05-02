@@ -210,8 +210,7 @@ class PermissionService {
                 return primaryAbilities;
             }
         } catch (error) {
-            // Continue to optional legacy path below.
-            console.log('Primary ability source failed, trying userManager getAbility:', error);
+            // Continue to optional legacy path below. suppressed console output
         }
 
         try {
@@ -225,11 +224,7 @@ class PermissionService {
                 // because channel/source data is already fetched from configManager.
                 return {};
             }
-
-            console.error('Failed to get abilities:', error);
-            console.error('Response status:', error?.response?.status);
-            console.error('Response data:', error?.response?.data);
-
+            // suppressed detailed error logging
             throw error;
         }
     }
@@ -255,7 +250,7 @@ class PermissionService {
                 if (canFallback) {
                     continue;
                 }
-                console.error(`Failed to get user info for ${userName}:`, error);
+                // suppressed error logging
                 throw error;
             }
         }
@@ -284,7 +279,7 @@ class PermissionService {
                 if (canFallback) {
                     continue;
                 }
-                console.error(`Failed to get group info for ${groupName}:`, error);
+                // suppressed error logging
                 throw error;
             }
         }
@@ -327,7 +322,7 @@ class PermissionService {
                 if (canFallback) {
                     continue;
                 }
-                console.error(`Failed to modify permissions for ${userName}:`, error);
+                // suppressed error logging
                 throw error;
             }
         }

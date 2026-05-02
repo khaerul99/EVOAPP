@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { cameraService } from '../../services/camera/camera.service';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useStore } from '../../stores/useStore';
 import { getSecurityLogs } from '../../lib/security-log';
 import { buildDashboardEvents, deriveStats, normalizeCamera, pickDefaultActiveCamera } from '../../lib/dashboard-utils';
 
@@ -9,21 +9,19 @@ const FALLBACK_THUMBNAILS = [
     'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=80',
 ];
 
-const FALLBACK_CAMERAS = [
-    { id: 1, name: 'Lobby Utama - Unit A1', channelName: 'Lobby Utama - Unit A1', deviceName: 'Demo Device', status: 'online', ip: '192.168.1.101', port: '554', record: true, manufacture: 'Demo', thumbnail: FALLBACK_THUMBNAILS[0] },
-    { id: 2, name: 'Area Parkir Timur', channelName: 'Area Parkir Timur', deviceName: 'Demo Device', status: 'online', ip: '192.168.1.102', port: '554', record: true, manufacture: 'Demo', thumbnail: FALLBACK_THUMBNAILS[1] },
-    { id: 3, name: 'Ruang Server Tier 3', channelName: 'Ruang Server Tier 3', deviceName: 'Demo Device', status: 'offline', ip: '192.168.1.105', port: '554', record: false, manufacture: 'Demo', thumbnail: FALLBACK_THUMBNAILS[2] },
-];
-
 export const useDashboard = () => {
-    const [cameras, setCameras] = useState(() => FALLBACK_CAMERAS);
-    const [activeCamera, setActiveCamera] = useState(() => FALLBACK_CAMERAS[0]);
-    const [events, setEvents] = useState(() => buildDashboardEvents(FALLBACK_CAMERAS, getSecurityLogs()));
-    const [stats, setStats] = useState(() => deriveStats(FALLBACK_CAMERAS, getSecurityLogs()));
+    const cameras = useStore((state) => state.cameras);
+    const cameraSnapshot = useStore((state) => state.cameraSnapshot);
+    const channelConnectionStates = useStore((state) => state.channelConnectionStates);
+    const onlineChannels = useStore((state) => state.onlineChannels);
+    const activeChannel = useStore((state) => state.activeChannel);
+    const isLoadingCameras = useStore((state) => state.isLoadingCameras);
+    const cameraError = useStore((state) => state.cameraError);
+    const fetchCameras = useStore((state) => state.fetchCameras);
+    const setActiveChannel = useStore((state) => state.setActiveChannel);
+
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [currentDateTime, setCurrentDateTime] = useState(new Date());
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState('');
     const playerRef = useRef(null);
 
     useEffect(() => {
@@ -32,86 +30,63 @@ export const useDashboard = () => {
     }, []);
 
     useEffect(() => {
-        let cancelled = false;
-
-        const fetchCameras = async () => {
-            setIsLoading(true);
-
-            try {
-                const cameraData = await cameraService.getCameraChannels();
-                if (cancelled) {
-                    return;
-                }
-
-                const normalizedCameras = Array.isArray(cameraData)
-                    ? cameraData.map((camera, index) => normalizeCamera(camera, index, FALLBACK_THUMBNAILS))
-                    : [];
-
-                if (normalizedCameras.length > 0) {
-                    setCameras(normalizedCameras);
-                    setActiveCamera((currentCamera) => {
-                        if (currentCamera && normalizedCameras.some((camera) => camera.id === currentCamera.id && camera.status === 'online')) {
-                            return normalizedCameras.find((camera) => camera.id === currentCamera.id) || pickDefaultActiveCamera(normalizedCameras);
-                        }
-
-                        return pickDefaultActiveCamera(normalizedCameras);
-                    });
-                    setError('');
-                } else {
-                    setCameras([]);
-                    setActiveCamera(null);
-                    setError('Belum ada kamera yang tersedia dari perangkat.');
-                }
-            } catch (fetchError) {
-                if (cancelled) {
-                    return;
-                }
-
-                setCameras(FALLBACK_CAMERAS);
-                setActiveCamera(FALLBACK_CAMERAS[0]);
-                setError('Gagal memuat data kamera dari perangkat. Menampilkan data cadangan.');
-                console.error('Camera fetch error:', fetchError);
-            } finally {
-                if (!cancelled) {
-                    setIsLoading(false);
-                }
-            }
-        };
-
         fetchCameras();
+        const refreshInterval = setInterval(fetchCameras, 30000);
+        return () => clearInterval(refreshInterval);
+    }, [fetchCameras]);
 
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+    const normalizedCameras = useMemo(
+        () => {
+            const normalized = cameras.map((camera, index) => normalizeCamera(camera, index, FALLBACK_THUMBNAILS));
+            console.log('[useDashboard.normalizedCameras] Total:', normalized.length);
+            normalized.forEach(cam => {
+                console.log(`[useDashboard.normalizedCameras] Camera ${cam.id}:`, { name: cam.name, status: cam.status });
+            });
+            return normalized;
+        },
+        [cameras],
+    );
 
-    useEffect(() => {
-        if (!cameras.length) {
-            setActiveCamera(null);
+    const activeCamera = useMemo(() => {
+        if (normalizedCameras.length === 0) {
+            console.log('[useDashboard.activeCamera] No normalized cameras');
+            return null;
+        }
+
+        const activeChannelNumber = Number(String(activeChannel || '').replace(/\D/g, ''));
+        console.log('[useDashboard.activeCamera] activeChannel:', activeChannel, 'parsed number:', activeChannelNumber);
+        
+        if (Number.isFinite(activeChannelNumber) && activeChannelNumber > 0) {
+            const matchedCamera = normalizedCameras.find((camera) => Number(camera.id) === activeChannelNumber);
+            if (matchedCamera) {
+                console.log('[useDashboard.activeCamera] Matched camera:', matchedCamera.id, matchedCamera.name);
+                return matchedCamera;
+            }
+        }
+
+        const onlineCamera = normalizedCameras.find((camera) => camera.status === 'online');
+        console.log('[useDashboard.activeCamera] First online camera:', onlineCamera?.id, onlineCamera?.name);
+        const result = onlineCamera || pickDefaultActiveCamera(normalizedCameras);
+        console.log('[useDashboard.activeCamera] Final result:', result?.id, result?.name);
+        return result;
+    }, [activeChannel, normalizedCameras]);
+
+    const securityLogs = useMemo(() => getSecurityLogs(), [currentDateTime]);
+    const stats = useMemo(() => {
+        const derived = deriveStats(normalizedCameras, securityLogs, channelConnectionStates);
+        console.log('[useDashboard.stats]', derived);
+        return derived;
+    }, [normalizedCameras, securityLogs, channelConnectionStates]);
+    const events = useMemo(() => buildDashboardEvents(normalizedCameras, securityLogs), [normalizedCameras, securityLogs]);
+
+    const setActiveCamera = useCallback((camera) => {
+        const cameraId = Number(camera?.id);
+        if (!Number.isFinite(cameraId) || cameraId < 1) {
             return;
         }
 
-        setActiveCamera((currentCamera) => {
-            if (currentCamera && cameras.some((camera) => camera.id === currentCamera.id && camera.status === 'online')) {
-                return cameras.find((camera) => camera.id === currentCamera.id) || pickDefaultActiveCamera(cameras);
-            }
-
-            return pickDefaultActiveCamera(cameras);
-        });
-    }, [cameras]);
-
-    useEffect(() => {
-        const refreshDashboardData = () => {
-            const securityLogs = getSecurityLogs();
-            setStats(deriveStats(cameras, securityLogs));
-            setEvents(buildDashboardEvents(cameras, securityLogs));
-        };
-
-        refreshDashboardData();
-
-        const timer = setInterval(refreshDashboardData, 5000);
-        return () => clearInterval(timer);
-    }, [cameras]);
+        setActiveChannel(`ch${cameraId}`);
+    }, [setActiveChannel]);
 
     useEffect(() => {
         const handleFullscreenChange = () => {
@@ -136,19 +111,23 @@ export const useDashboard = () => {
         }
     };
 
+    const unconnectedChannels = useStore((state) => state.unconnectedChannels);
+
     return {
         activeCamera,
         setActiveCamera,
-        cameras,
+        cameras: normalizedCameras,
+        cameraSnapshot,
+        onlineChannels,
+        unconnectedChannels,
         events,
-        setEvents,
         isFullscreen,
         setIsFullscreen,
         currentDateTime,
         playerRef,
         stats,
-        isLoading,
-        error,
+        isLoading: isLoadingCameras,
+        error: cameraError,
         handleToggleFullscreen,
     };
 };

@@ -4,11 +4,20 @@ import { warmupDigestChallenge } from "../auth/digest-warmup.service";
 const PEOPLE_COUNTING_LOG_PREFIX = "[people-counting-endpoint]";
 
 function logPeopleCountingEndpoint(message, payload) {
-  console.log(`${PEOPLE_COUNTING_LOG_PREFIX} ${message}`, payload);
+  // intentionally no-op to avoid noisy logs in production
 }
 
 function logPeopleCountingEndpointError(message, payload) {
-  console.error(`${PEOPLE_COUNTING_LOG_PREFIX} ${message}`, payload);
+  // intentionally no-op to avoid noisy logs in production
+}
+
+function toEndpointPreview(response) {
+  return {
+    status: Number(response?.status || 0),
+    data: response?.data,
+    headers: response?.headers || {},
+    contentType: String(response?.headers?.["content-type"] || response?.headers?.["Content-Type"] || ""),
+  };
 }
 
 function parseKeyValuePayload(rawData) {
@@ -156,6 +165,23 @@ function toInteger(value, fallback = 0) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
+
+function normalizeBooleanLike(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (["1", "true", "yes", "on", "online", "connected", "connect", "active", "ok"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off", "offline", "loss", "lost", "disconnected", "disconnect", "failed", "error", "inactive"].includes(normalized)) {
+    return false;
+  }
+
+  return null;
+}
+
 
 function isPeopleCountingRuleType(ruleType) {
   const normalized = String(ruleType || "")
@@ -802,6 +828,29 @@ export const cameraSettingsService = {
       };
     }
   },
+  
+  previewCameraEndpoint: async (endpoint) => {
+    const response = await ApiClient.get(endpoint, {
+      validateStatus: () => true,
+      __skipDigestSign: true,
+      __noRetry: true,
+      headers: {
+        "Cache-Control": "no-cache, no-store",
+        Pragma: "no-cache",
+      },
+    });
+
+    const preview = toEndpointPreview(response);
+    logPeopleCountingEndpoint("previewCameraEndpoint response", {
+      endpoint,
+      status: preview.status,
+      contentType: preview.contentType,
+      data: preview.data,
+    });
+
+    return preview;
+  },
+  
   getPeopleCountingConfig: async (channelId = 1, options = {}) => {
     await warmupDigestChallenge();
     const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;

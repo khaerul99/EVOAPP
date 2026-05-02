@@ -1,6 +1,11 @@
 export const AUTH_PROBE_PATH = import.meta.env.VITE_AUTH_PATH || '/cgi-bin/magicBox.cgi?action=getLanguageCaps'
 export const AUTH_METHOD = (import.meta.env.VITE_AUTH_METHOD || 'GET').toUpperCase()
 
+const digestPathPrefixes = String(import.meta.env.VITE_DIGEST_PATH_PREFIXES || '/cgi-bin/')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+
 export function getRequestUri(url) {
     try {
         const parsedUrl = new URL(url, window.location.origin)
@@ -8,4 +13,10 @@ export function getRequestUri(url) {
     } catch {
         return String(url || '/')
     }
+}
+
+export function shouldUseDigestForUrl(url) {
+    const requestUri = getRequestUri(url || '/')
+    const pathOnly = String(requestUri).split('?')[0].toLowerCase()
+    return digestPathPrefixes.some((prefix) => pathOnly.startsWith(prefix))
 }

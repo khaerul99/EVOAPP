@@ -1,4 +1,5 @@
 import ApiClient from '../../lib/api';
+import { authStore } from '../../stores/authSlice';
 
 function toTextPayload(rawData) {
     if (typeof rawData === 'string') {
@@ -21,6 +22,30 @@ function toTextPayload(rawData) {
 }
 
 function parseKeyValuePayload(rawData) {
+    if (rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
+        const objectOutput = {};
+
+        Object.entries(rawData).forEach(([key, value]) => {
+            if (!key) {
+                return;
+            }
+
+            if (value === undefined || value === null) {
+                objectOutput[String(key).trim()] = '';
+                return;
+            }
+
+            if (typeof value === 'object') {
+                objectOutput[String(key).trim()] = JSON.stringify(value);
+                return;
+            }
+
+            objectOutput[String(key).trim()] = String(value).trim();
+        });
+
+        return objectOutput;
+    }
+
     const payload = toTextPayload(rawData);
     const output = {};
 
@@ -64,7 +89,7 @@ function pickFirstValue(source, candidates) {
 
 function normalizeUserRecord(user, index = 0) {
     const name = pickFirstValue(user, ['Name', 'name', 'UserName', 'username', 'User', 'user']);
-    const group = pickFirstValue(user, ['GroupName', 'Group', 'group', 'UserGroup', 'AuthorityList']);
+    const group = pickFirstValue(user, ['GroupName', 'Group', 'group', 'UserGroup']);
     const remark = pickFirstValue(user, ['Memo', 'memo', 'Remark', 'remark', 'Comment']);
     const authority = pickFirstValue(user, ['Authority', 'authority', 'Level', 'level', 'Type', 'type']);
     const authorities = Array.isArray(user?.AuthorityList)
@@ -98,6 +123,107 @@ function parseUsersFromObjectPayload(rawData) {
     }
 
     return [normalizeUserRecord(rawData, 0)];
+}
+
+function normalizeGroupRecord(group, index = 0) {
+    const name = pickFirstValue(group, ['Name', 'name', 'GroupName', 'groupName', 'Group', 'group']);
+    const memo = pickFirstValue(group, ['Memo', 'memo', 'Remark', 'remark', 'Comment']);
+    const id = pickFirstValue(group, ['Id', 'id', 'Index', 'index']);
+
+    return {
+        id: id ? String(id) : String(index + 1),
+        groupName: name || '-',
+        memo,
+        raw: group,
+    };
+}
+
+function parseGroupsFromObjectPayload(rawData) {
+    if (Array.isArray(rawData)) {
+        return rawData.map((entry, index) => normalizeGroupRecord(entry || {}, index));
+    }
+
+    if (!rawData || typeof rawData !== 'object') {
+        return [];
+    }
+
+    // Direct object keyed by id/index -> values are objects
+    const objectValues = Object.values(rawData);
+    const hasObjectArray = objectValues.length > 0 && objectValues.every((value) => value && typeof value === 'object' && !Array.isArray(value));
+    if (hasObjectArray) {
+        return objectValues.map((entry, index) => normalizeGroupRecord(entry || {}, index));
+    }
+
+    // Single object record
+    const singleName = pickFirstValue(rawData, ['Name', 'name', 'GroupName', 'groupName', 'Group', 'group']);
+    if (singleName) {
+        return [normalizeGroupRecord(rawData, 0)];
+    }
+
+    return [];
+}
+
+function parseGroupsFromKeyValuePayload(rawData) {
+    const keyValueMap = parseKeyValuePayload(rawData);
+    const groupedGroups = {};
+
+    const patterns = [
+        /^(?:table\.)?(?:group|groups)\[(\d+)\]\.(.+)$/i,
+        /^(?:table\.)?(?:group|groups)\.([^.]+)\.(.+)$/i,
+    ];
+
+    Object.entries(keyValueMap).forEach(([key, value]) => {
+        for (const pattern of patterns) {
+            const match = key.match(pattern);
+            if (!match) {
+                continue;
+            }
+
+            const groupId = String(match[1] || '').trim();
+            const field = String(match[2] || '').trim();
+            if (!groupId || !field) {
+                return;
+            }
+
+            if (!groupedGroups[groupId]) {
+                groupedGroups[groupId] = {};
+            }
+
+            groupedGroups[groupId][field] = value;
+            return;
+        }
+    });
+
+    const groups = Object.keys(groupedGroups)
+        .sort((a, b) => Number(a) - Number(b))
+        .map((groupId) => {
+            const raw = groupedGroups[groupId] || {};
+            const normalized = { ...raw };
+
+            Object.keys(raw).forEach((field) => {
+                const normalizedField = field.includes('.') ? field.split('.').pop() : field;
+                normalized[normalizedField] = raw[field];
+            });
+
+            return normalized;
+        });
+
+    if (groups.length > 0) {
+        return groups.map((entry, index) => normalizeGroupRecord(entry, index));
+    }
+
+    return [];
+}
+
+function parseGroupList(rawData) {
+    // Try key-value parser first (covers raw string and plain object key maps like {"group[0].Name": "admin"})
+    const keyValueGroups = parseGroupsFromKeyValuePayload(rawData);
+    if (keyValueGroups.length > 0) {
+        return keyValueGroups;
+    }
+
+    // Fallback for proper object/array payloads
+    return parseGroupsFromObjectPayload(rawData);
 }
 
 function parseUsersFromKeyValuePayload(rawData) {
@@ -469,6 +595,86 @@ export const userService = {
         };
     },
 
+    getAllGroups: async () => {
+        const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
+            params: { action: 'getGroupInfoAll' },
+        });
+
+        return {
+            groups: parseGroupList(response?.data),
+            raw: response?.data,
+        };
+    },
+
+    addGroup: async ({ payload = {}, authPassword = '' }) => {
+        const name = String(payload?.name || '').trim();
+        const memo = String(payload?.memo || '').trim();
+        const authorityList = Array.isArray(payload?.authorities)
+            ? payload.authorities.map((entry) => String(entry || '').trim()).filter(Boolean)
+            : String(payload?.authority || '')
+                .split(',')
+                .map((entry) => String(entry || '').trim())
+                .filter(Boolean);
+
+        const group = {
+            Name: name,
+        };
+
+        if (memo) {
+            group.Memo = memo;
+        }
+
+        if (authorityList.length > 0) {
+            group.AuthorityList = authorityList;
+        }
+
+        const requestBody = {
+            group,
+        };
+
+        const state = authStore.getState();
+        const managerName = String(state?.auth?.username || '').trim();
+        const password = String(authPassword || '').trim();
+
+        // Preserve master-like flow: UI asks password first and we forward it for gateways/backends that validate manager credentials.
+        if (managerName) {
+            requestBody.managerName = managerName;
+        }
+        if (password) {
+            requestBody.password = password;
+            requestBody.managerPwd = password;
+        }
+
+        const response = await ApiClient.post('/cgi-bin/api/userManager/addGroup', requestBody);
+        return response?.data;
+    },
+
+    deleteGroup: async ({ name, authPassword = '' }) => {
+        const groupName = String(name || '').trim();
+        if (!groupName) {
+            throw new Error('Nama group wajib diisi.');
+        }
+
+        const requestBody = {
+            name: groupName,
+        };
+
+        const state = authStore.getState();
+        const managerName = String(state?.auth?.username || '').trim();
+        const password = String(authPassword || '').trim();
+
+        if (managerName) {
+            requestBody.managerName = managerName;
+        }
+        if (password) {
+            requestBody.password = password;
+            requestBody.managerPwd = password;
+        }
+
+        const response = await ApiClient.post('/cgi-bin/api/userManager/deleteGroup', requestBody);
+        return response?.data;
+    },
+
     getUserByName: async (name) => {
         const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
             params: {
@@ -511,30 +717,22 @@ export const userService = {
         }
     },
 
-    deleteUser: async ({ name, extraQuery = '' }) => {
+    deleteUser: async ({ name, extraQuery = '', authPassword = '' }) => {
+        const state = authStore.getState();
+        const managerName = String(state?.auth?.username || '').trim();
+        const password = String(authPassword || '').trim();
+
         const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
             params: {
                 action: 'deleteUser',
                 name,
+                ...(managerName ? { managerName } : {}),
+                ...(password ? { password, managerPwd: password } : {}),
                 ...parseQueryStringInput(extraQuery),
             },
         });
 
         return response?.data;
-    },
-
-    getOnvifDevice: async () => {
-        const response = await ApiClient.get('/cgi-bin/configManager.cgi', {
-            params: {
-                action: 'getConfig',
-                name: 'OnvifDevice',
-            },
-        });
-
-        return {
-            data: parseKeyValuePayload(response?.data),
-            raw: response?.data,
-        };
     },
 
     modifyPassword: async ({ name, pwd, pwdOld, extraQuery = '' }) => {

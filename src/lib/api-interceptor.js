@@ -1,110 +1,29 @@
-import { getRequestUri } from './api-config'
-import { buildDigestAuthorizationHeader, computeDigestSecret, createCnonce, formatNc, parseDigestChallenge } from './auth-helper'
+import { computeDigestSecret } from './auth-helper'
+import {
+    canSignWithDigest,
+    createDigestSignedConfig,
+    extractDigestChallenge,
+    hasDigestCredentials,
+    shouldSkipDigestRetry,
+} from './digest-auth'
 import { authStore } from '../stores/authSlice'
 
-function getHeaderCaseInsensitive(headers = {}, key) {
-    if (!headers) {
-        return null
+function signRequestWithDigest(config, authState) {
+    const result = createDigestSignedConfig(config, authState)
+    if (result.usedDigest) {
+        authStore.actions.updateNc(result.nextNc)
     }
-    if (key.toLowerCase() === 'www-authenticate') {
-        return headers['x-www-authenticate'] || headers['X-WWW-Authenticate'] || headers['X-Www-Authenticate'] || headers[key] || headers[key.toLowerCase()] || headers[key.toUpperCase()]
-    }
-    return headers[key] || headers[key.toLowerCase()] || headers[key.toUpperCase()]
-}
-
-function canUseDigest(state) {
-    const hasSecret = Boolean(state?.auth?.digestSecret)
-    const hasRuntimePassword = Boolean(state?.runtimeRtspPassword)
-    return Boolean(state?.isAuthenticated && state?.auth?.username && (hasSecret || hasRuntimePassword) && state?.challenge?.nonce)
-}
-
-function getBodyString(data) {
-    if (!data) {
-        return ''
-    }
-    if (typeof data === 'string') {
-        return data
-    }
-    try {
-        return JSON.stringify(data)
-    } catch {
-        return ''
-    }
-}
-
-function buildUriWithParams(url, params) {
-    const baseUri = getRequestUri(url || '/')
-    if (!params || typeof params !== 'object') {
-        return baseUri
-    }
-
-    const [pathOnly, existingQuery = ''] = String(baseUri).split('?')
-    const searchParams = new URLSearchParams(existingQuery)
-
-    Object.entries(params).forEach(([key, value]) => {
-        if (value === undefined || value === null) {
-            return
-        }
-
-        if (Array.isArray(value)) {
-            value.forEach((entry) => {
-                if (entry === undefined || entry === null) {
-                    return
-                }
-                searchParams.append(key, String(entry))
-            })
-            return
-        }
-
-        searchParams.append(key, String(value))
-    })
-
-    const nextQuery = searchParams.toString()
-    return nextQuery ? `${pathOnly}?${nextQuery}` : pathOnly
-}
-
-function appendDigestHeader(config, authState) {
-    if (!canUseDigest(authState)) {
-        return config
-    }
-
-    const nextCounter = (authState.nc || 0) + 1
-    const nc = formatNc(nextCounter)
-    const cnonce = createCnonce()
-    const uri = buildUriWithParams(config.url || '/', config.params)
-    const method = config.method || 'GET'
-    const body = getBodyString(config.data)
-
-    const hasDigestSecret = Boolean(authState?.auth?.digestSecret)
-    const digestSecret = hasDigestSecret
-        ? authState.auth.digestSecret
-        : computeDigestSecret(authState.auth.username, authState.challenge.realm, authState.runtimeRtspPassword || '')
-
-    const authorization = buildDigestAuthorizationHeader({
-        method,
-        uri,
-        username: authState.auth.username,
-        digestSecret: digestSecret || undefined,
-        password: hasDigestSecret ? undefined : (authState.runtimeRtspPassword || ''),
-        body,
-        challenge: authState.challenge,
-        nc,
-        cnonce,
-    })
-
-    const headers = { ...(config.headers || {}), Authorization: authorization }
-    authStore.actions.updateNc(nextCounter)
-
-    return {
-        ...config,
-        headers,
-    }
+    return result.config
 }
 
 export function setupInterceptors(ApiClient) {
     ApiClient.interceptors.request.use((config) => {
+        if (config?.__skipDigestSign) {
+            return config
+        }
+
         const authState = authStore.getState()
-        return appendDigestHeader(config, authState)
+        return signRequestWithDigest(config, authState)
     })
 
     ApiClient.interceptors.response.use(
@@ -129,8 +48,7 @@ export function setupInterceptors(ApiClient) {
                 throw error
             }
 
-            const requestUrl = String(originalConfig.url || '').toLowerCase()
-            if (requestUrl.includes('.m3u8') || requestUrl.includes('playlist') || requestUrl.includes('manifest')) {
+            if (shouldSkipDigestRetry(originalConfig.url || '')) {
                 throw error
             }
 
@@ -141,19 +59,22 @@ export function setupInterceptors(ApiClient) {
             }
 
             const authState = authStore.getState()
-            if (!authState?.auth?.username || (!authState?.auth?.digestSecret && !authState?.runtimeRtspPassword)) {
+            if (!hasDigestCredentials(authState)) {
                 throw error
             }
 
-            const authenticateHeader = getHeaderCaseInsensitive(response.headers, 'www-authenticate')
-            const challenge = parseDigestChallenge(authenticateHeader || '')
+            const challenge = extractDigestChallenge(response.headers)
             if (!challenge) {
                 throw error
             }
 
             authStore.actions.updateChallenge(challenge)
             const refreshedState = authStore.getState()
-            const retriedConfig = appendDigestHeader(
+            if (!canSignWithDigest(refreshedState)) {
+                throw error
+            }
+
+            const retriedConfig = signRequestWithDigest(
                 {
                     ...originalConfig,
                     __digestRetryCount: retryCount + 1,
