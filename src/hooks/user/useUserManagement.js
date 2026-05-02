@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { userService } from '../../services/user/user.service';
+import { cameraService } from '../../services/camera/camera.service';
 import { authStore } from '../../stores/authSlice';
 import { permissionService } from '../../services/user/permission.service';
+import { loginWithDigest } from '../../services/auth/auth.service';
 
 const INITIAL_FORM_STATE = {
     name: '',
@@ -32,6 +34,38 @@ function createInitialGroupFormState() {
 
 function normalizeSearch(value) {
     return String(value || '').toLowerCase();
+}
+
+function detectOwnerFromPayload(payload = {}) {
+    const ownerKeys = [
+        'Creator',
+        'creator',
+        'CreateBy',
+        'createBy',
+        'Owner',
+        'owner',
+        'ManagerName',
+        'managerName',
+    ];
+
+    for (const key of ownerKeys) {
+        const value = String(payload?.[key] || '').trim();
+        if (value) {
+            return value;
+        }
+    }
+
+    for (const [key, value] of Object.entries(payload || {})) {
+        if (!/(creator|createby|owner|managername)/i.test(String(key))) {
+            continue;
+        }
+        const text = String(value || '').trim();
+        if (text) {
+            return text;
+        }
+    }
+
+    return '';
 }
 
 function createEditFormState(user) {
@@ -80,6 +114,7 @@ export function useUserManagement() {
     const [formData, setFormData] = useState(createInitialFormState);
     const [groupFormData, setGroupFormData] = useState(createInitialGroupFormState);
     const [groupAuthPassword, setGroupAuthPassword] = useState('');
+    const [groupAuthMessage, setGroupAuthMessage] = useState('');
     const [groupEditorTab, setGroupEditorTab] = useState('attribute');
     const [groupPermissionChannels, setGroupPermissionChannels] = useState([]);
     const [editTarget, setEditTarget] = useState(null);
@@ -94,6 +129,7 @@ export function useUserManagement() {
     const [currentUsername] = useState(() => String(authStore.getState()?.auth?.username || '').trim());
     const [isDeleteAuthOpen, setIsDeleteAuthOpen] = useState(false);
     const [deleteAuthPassword, setDeleteAuthPassword] = useState('');
+    const [deleteAuthMessage, setDeleteAuthMessage] = useState('');
     const [pendingDeleteTarget, setPendingDeleteTarget] = useState(null);
     const [deleteNotification, setDeleteNotification] = useState(null);
 
@@ -229,10 +265,16 @@ export function useUserManagement() {
         }
 
         const matchedGroup = userGroups.find((entry) => entry.groupName === selectedGroup);
+        const groupMemo = String(
+            matchedGroup?.memo
+            || matchedGroup?.raw?.Memo
+            || matchedGroup?.raw?.memo
+            || '',
+        ).trim();
         return {
             name: selectedGroup,
             parent: 'EvoSecure',
-            description: `${matchedGroup?.users?.length || selectedGroupUsers.length} user di grup ini`,
+            description: groupMemo || `${matchedGroup?.users?.length || selectedGroupUsers.length} user di grup ini`,
         };
     }, [selectedGroup, selectedGroupUsers.length, userGroups, users.length, groups]);
 
@@ -264,6 +306,38 @@ export function useUserManagement() {
             isUserNode: true,
         };
     }, [selectedAttributeUser, selectedGroupInfo]);
+
+    const canEditSelectedAttribute = useMemo(() => {
+        const normalizedCurrent = normalizeSearch(currentUsername);
+        if (!normalizedCurrent) {
+            return false;
+        }
+
+        if (selectedAttributeUser) {
+            const owner = detectOwnerFromPayload(selectedAttributeUser?.raw || {});
+            const normalizedOwner = normalizeSearch(owner);
+            const normalizedUserName = normalizeSearch(selectedAttributeUser?.name || '');
+            const protectedNames = new Set(['admin', 'administrator', 'onvif', 'evosecure']);
+            const isProtectedTarget = protectedNames.has(normalizedUserName);
+            const isOwnerMatch = Boolean(normalizedOwner) && normalizedOwner === normalizedCurrent;
+            const canFallbackEdit = !normalizedOwner && !isProtectedTarget;
+            return isOwnerMatch || canFallbackEdit;
+        }
+
+        if (selectedGroup === 'all') {
+            return false;
+        }
+
+        const matchedGroup = userGroups.find((entry) => entry.groupName === selectedGroup);
+        const owner = detectOwnerFromPayload(matchedGroup?.raw || {});
+        const normalizedOwner = normalizeSearch(owner);
+        const normalizedGroupName = normalizeSearch(selectedGroup);
+        const protectedNames = new Set(['admin', 'administrator', 'onvif', 'evosecure']);
+        const isProtectedTarget = protectedNames.has(normalizedGroupName);
+        const isOwnerMatch = Boolean(normalizedOwner) && normalizedOwner === normalizedCurrent;
+        const canFallbackEdit = !normalizedOwner && !isProtectedTarget;
+        return isOwnerMatch || canFallbackEdit;
+    }, [currentUsername, selectedAttributeUser, selectedGroup, userGroups]);
 
     const resetForm = useCallback(() => {
         setFormData(createInitialFormState());
@@ -306,6 +380,7 @@ export function useUserManagement() {
     const closeGroupAuthModal = useCallback(() => {
         setIsGroupAuthOpen(false);
         setGroupAuthPassword('');
+        setGroupAuthMessage('');
     }, []);
 
     const closeAddGroupModal = useCallback(() => {
@@ -317,6 +392,7 @@ export function useUserManagement() {
     const closeDeleteAuthModal = useCallback(() => {
         setIsDeleteAuthOpen(false);
         setDeleteAuthPassword('');
+        setDeleteAuthMessage('');
         setPendingDeleteTarget(null);
     }, []);
 
@@ -326,31 +402,21 @@ export function useUserManagement() {
         setIsAddGroupOpen(false);
         setGroupFormData(createInitialGroupFormState());
         setGroupAuthPassword('');
+        setGroupAuthMessage('');
         setGroupEditorTab('attribute');
         setIsGroupAuthOpen(true);
     }, []);
 
     const loadGroupPermissionChannels = useCallback(async () => {
         try {
-            const abilities = await permissionService.getAbility();
-            const channels = Object.entries(abilities || {})
-                .map(([key, value]) => {
-                    const match = String(key || '').match(/^Channel(\d+)$/i);
-                    if (!match) {
-                        return null;
-                    }
-
-                    const id = Number(match[1]);
-                    if (!Number.isFinite(id) || id <= 0) {
-                        return null;
-                    }
-
-                    return {
-                        id,
-                        name: String(value || `Channel${id}`),
-                    };
-                })
-                .filter(Boolean)
+            // Use cameraService to get channels with proper ChannelTitle data
+            const rows = await cameraService.getCameraChannels();
+            const channels = (Array.isArray(rows) ? rows : [])
+                .map((row) => ({
+                    id: Number(row?.id),
+                    name: String(row?.name || row?.channelName || `Channel ${row?.id}`),
+                }))
+                .filter((ch) => Number.isFinite(ch.id) && ch.id > 0)
                 .sort((left, right) => left.id - right.id);
 
             setGroupPermissionChannels(channels);
@@ -362,15 +428,29 @@ export function useUserManagement() {
     const confirmGroupAuth = useCallback(async (event) => {
         event.preventDefault();
         if (!String(groupAuthPassword || '').trim()) {
-            setStatusMessage('Password autentikasi wajib diisi.');
+            setGroupAuthMessage('Password autentikasi wajib diisi.');
             return;
         }
 
-        setStatusMessage('');
-        await loadGroupPermissionChannels();
-        setIsGroupAuthOpen(false);
-        setIsAddGroupOpen(true);
-    }, [groupAuthPassword, loadGroupPermissionChannels]);
+        setGroupAuthMessage('');
+        try {
+            const probe = await loginWithDigest(currentUsername, String(groupAuthPassword || ''));
+            if (probe && probe.requiresDigest === false) {
+                setGroupAuthMessage('Perangkat tidak dapat memverifikasi kredensial melalui endpoint probe. Operasi dibatalkan.');
+                return;
+            }
+
+            await loadGroupPermissionChannels();
+            setIsGroupAuthOpen(false);
+            setIsAddGroupOpen(true);
+        } catch (error) {
+            const serverMessage =
+                (error?.response && (typeof error.response.data === 'string' ? error.response.data : error.response.data?.message))
+                || error?.message
+                || 'Gagal memuat permission. Periksa password autentikasi.';
+            setGroupAuthMessage(String(serverMessage));
+        }
+    }, [currentUsername, groupAuthPassword, loadGroupPermissionChannels]);
 
     const handleAddGroup = useCallback(async (event) => {
         event.preventDefault();
@@ -381,8 +461,17 @@ export function useUserManagement() {
             return;
         }
 
+        const selectedAuthorities = String(groupFormData.authority || '')
+            .split(',')
+            .map((entry) => String(entry || '').trim())
+            .filter(Boolean);
+        if (selectedAuthorities.length === 0) {
+            setStatusMessage('Pilih minimal satu permission sebelum menambahkan group.');
+            return;
+        }
+
         if (!String(groupAuthPassword || '').trim()) {
-            setStatusMessage('Password autentikasi wajib diisi.');
+            setGroupAuthMessage('Password autentikasi wajib diisi.');
             setIsAddGroupOpen(false);
             setIsGroupAuthOpen(true);
             return;
@@ -390,7 +479,24 @@ export function useUserManagement() {
 
         try {
             setSubmitting(true);
-            setStatusMessage('');
+            setGroupAuthMessage('');
+
+            // Pre-check manager credentials using existing digest login probe.
+            try {
+                const probe = await loginWithDigest(currentUsername, String(groupAuthPassword || ''));
+                // If probe reports that the probe endpoint does NOT require digest, we cannot
+                // reliably validate manager credentials using the configured probe.
+                if (probe && probe.requiresDigest === false) {
+                    setGroupAuthMessage('Perangkat tidak dapat memverifikasi kredensial melalui endpoint probe. Operasi dibatalkan.');
+                    setSubmitting(false);
+                    return;
+                }
+            } catch (authErr) {
+                const authMessage = (authErr && authErr.message) ? String(authErr.message) : 'Kredensial manager salah.';
+                setGroupAuthMessage(authMessage);
+                setSubmitting(false);
+                return;
+            }
 
             await userService.addGroup({
                 payload: {
@@ -405,8 +511,12 @@ export function useUserManagement() {
             setGroupAuthPassword('');
             await loadAllUsers();
             setStatusMessage('Group berhasil ditambahkan.');
-        } catch {
-            setStatusMessage('Gagal menambahkan group. Periksa password autentikasi dan parameter group.');
+        } catch (error) {
+            const serverMessage =
+                (error?.response && (typeof error.response.data === 'string' ? error.response.data : error.response.data?.message))
+                || error?.message
+                || 'Gagal menambahkan group. Periksa password autentikasi dan parameter group.';
+            setStatusMessage(String(serverMessage));
         } finally {
             setSubmitting(false);
         }
@@ -506,28 +616,28 @@ export function useUserManagement() {
     const handleDeleteUser = useCallback(async ({ user, authPassword = '' }) => {
         const username = String(user?.name || '').trim();
         if (!username || username === '-') {
-            setStatusMessage('Nama user tidak valid untuk dihapus.');
+            setDeleteAuthMessage('Nama user tidak valid untuk dihapus.');
             return;
         }
 
         if (!String(authPassword || '').trim()) {
-            setStatusMessage('Password autentikasi wajib diisi.');
+            setDeleteAuthMessage('Password autentikasi wajib diisi.');
             return;
         }
 
         try {
             setSubmitting(true);
-            setStatusMessage('');
+            setDeleteAuthMessage('');
             await userService.deleteUser({ name: username, authPassword });
             await loadAllUsers();
-            setStatusMessage('User berhasil dihapus.');
+            setDeleteAuthMessage('');
             setDeleteNotification({
                 type: 'success',
                 title: 'User Dihapus',
                 message: `User "${username}" telah berhasil dihapus.`,
             });
         } catch {
-            setStatusMessage('Gagal menghapus user dari perangkat.');
+            setDeleteAuthMessage('Gagal menghapus user dari perangkat. Pastikan password autentikasi benar.');
         } finally {
             setSubmitting(false);
         }
@@ -550,32 +660,97 @@ export function useUserManagement() {
     const handleDeleteGroup = useCallback(async ({ group, authPassword = '' }) => {
         const groupName = String(group?.groupName || '').trim();
         if (!canDeleteGroup(group)) {
-            setStatusMessage('Group hanya bisa dihapus jika kosong.');
+            setDeleteAuthMessage('Group hanya bisa dihapus jika kosong.');
             return;
         }
 
         if (!String(authPassword || '').trim()) {
-            setStatusMessage('Password autentikasi wajib diisi.');
+            setDeleteAuthMessage('Password autentikasi wajib diisi.');
             return;
         }
 
         try {
             setSubmitting(true);
-            setStatusMessage('');
+            setDeleteAuthMessage('');
             await userService.deleteGroup({ name: groupName, authPassword });
             await loadAllUsers();
-            setStatusMessage('Group berhasil dihapus.');
+            setDeleteAuthMessage('');
             setDeleteNotification({
                 type: 'success',
                 title: 'Group Dihapus',
                 message: `Group "${groupName}" telah berhasil dihapus.`,
             });
         } catch {
-            setStatusMessage('Gagal menghapus group. Pastikan group kosong dan password autentikasi benar.');
+            setDeleteAuthMessage('Gagal menghapus group. Pastikan group kosong dan password autentikasi benar.');
         } finally {
             setSubmitting(false);
         }
     }, [canDeleteGroup, loadAllUsers]);
+
+    const handleModifyGroupAttribute = useCallback(async ({ group, nextName = '', memo = '', authPassword = '' }) => {
+        const groupName = String(group?.groupName || '').trim();
+        if (!groupName || groupName.toLowerCase() === 'all') {
+            setStatusMessage('Group tidak valid untuk diubah.');
+            return false;
+        }
+        const targetName = String(nextName || groupName).trim();
+        if (!targetName) {
+            setStatusMessage('Nama group baru tidak valid.');
+            return false;
+        }
+
+        const password = String(authPassword || '').trim();
+        if (!password) {
+            setStatusMessage('Password autentikasi wajib diisi.');
+            return false;
+        }
+
+        const authorities = Array.isArray(group?.raw?.AuthorityList)
+            ? group.raw.AuthorityList.map((entry) => String(entry || '').trim()).filter(Boolean)
+            : String(
+                group?.raw?.authority
+                || group?.raw?.Authority
+                || group?.raw?.authorityList
+                || '',
+            )
+                .split(',')
+                .map((entry) => String(entry || '').trim())
+                .filter(Boolean);
+
+        try {
+            setSubmitting(true);
+            setStatusMessage('');
+
+            const probe = await loginWithDigest(currentUsername, password);
+            if (probe && probe.requiresDigest === false) {
+                setStatusMessage('Perangkat tidak dapat memverifikasi kredensial melalui endpoint probe. Operasi dibatalkan.');
+                return false;
+            }
+
+            await userService.modifyGroup({
+                payload: {
+                    name: groupName,
+                    nextName: targetName,
+                    memo: String(memo || '').trim(),
+                    authority: authorities.join(','),
+                },
+                authPassword: password,
+            });
+
+            await loadAllUsers();
+            setStatusMessage('Attribute group berhasil diperbarui.');
+            return true;
+        } catch (error) {
+            const message =
+                (error?.response && (typeof error.response.data === 'string' ? error.response.data : error.response.data?.message))
+                || error?.message
+                || 'Gagal memperbarui attribute group.';
+            setStatusMessage(String(message));
+            return false;
+        } finally {
+            setSubmitting(false);
+        }
+    }, [currentUsername, loadAllUsers]);
 
     const openDeleteAuthModal = useCallback((target) => {
         if (!target) {
@@ -589,6 +764,7 @@ export function useUserManagement() {
 
         setPendingDeleteTarget(target);
         setDeleteAuthPassword('');
+        setDeleteAuthMessage('');
         setIsDeleteAuthOpen(true);
     }, [canDeleteGroup]);
 
@@ -597,26 +773,36 @@ export function useUserManagement() {
 
         const authPassword = String(deleteAuthPassword || '').trim();
         if (!authPassword) {
-            setStatusMessage('Password autentikasi wajib diisi.');
+            setDeleteAuthMessage('Password autentikasi wajib diisi.');
             return;
         }
 
         if (!pendingDeleteTarget) {
-            setStatusMessage('Target hapus tidak ditemukan.');
+            setDeleteAuthMessage('Target hapus tidak ditemukan.');
             return;
         }
 
         try {
+            const probe = await loginWithDigest(currentUsername, authPassword);
+            if (probe && probe.requiresDigest === false) {
+                setDeleteAuthMessage('Perangkat tidak dapat memverifikasi kredensial melalui endpoint probe. Operasi dibatalkan.');
+                return;
+            }
+
             if (pendingDeleteTarget.kind === 'user') {
                 await handleDeleteUser({ user: pendingDeleteTarget.user, authPassword });
             } else if (pendingDeleteTarget.kind === 'group') {
                 await handleDeleteGroup({ group: pendingDeleteTarget.group, authPassword });
             }
             closeDeleteAuthModal();
-        } catch {
-            // handler already sets message
+        } catch (error) {
+            const message =
+                (error?.response && (typeof error.response.data === 'string' ? error.response.data : error.response.data?.message))
+                || error?.message
+                || 'Password salah atau autentikasi gagal.';
+            setDeleteAuthMessage(String(message));
         }
-    }, [closeDeleteAuthModal, deleteAuthPassword, handleDeleteGroup, handleDeleteUser, pendingDeleteTarget]);
+    }, [closeDeleteAuthModal, currentUsername, deleteAuthPassword, handleDeleteGroup, handleDeleteUser, pendingDeleteTarget]);
 
 
     return {
@@ -636,6 +822,7 @@ export function useUserManagement() {
         setGroupFormData,
         groupAuthPassword,
         setGroupAuthPassword,
+        groupAuthMessage,
         groupEditorTab,
         setGroupEditorTab,
         groupPermissionChannels,
@@ -657,6 +844,7 @@ export function useUserManagement() {
         selectedGroupInfo,
         selectedAttributeInfo,
         selectedAttributeUser,
+        canEditSelectedAttribute,
         selectedUserForAttribute,
         setSelectedUserForAttribute,
         filteredUsers,
@@ -671,6 +859,7 @@ export function useUserManagement() {
         isDeleteAuthOpen,
         deleteAuthPassword,
         setDeleteAuthPassword,
+        deleteAuthMessage,
         closeDeleteAuthModal,
         openDeleteAuthModal,
         confirmDeleteAuth,
@@ -681,6 +870,7 @@ export function useUserManagement() {
         handleDeleteUser,
         canDeleteGroup,
         handleDeleteGroup,
+        handleModifyGroupAttribute,
         selectedUserForPermission,
         setSelectedUserForPermission,
         isUserManagementSupported,

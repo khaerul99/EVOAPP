@@ -1,6 +1,42 @@
 import ApiClient from '../../lib/api';
 
 class PermissionService {
+    toLegacyAuthorityToken(token) {
+        const raw = String(token || '').trim();
+        if (!raw) {
+            return '';
+        }
+
+        const liveMatch = raw.match(/^LiveChannel(\d+)$/i);
+        if (liveMatch) {
+            return `Monitor_${String(Number(liveMatch[1])).padStart(2, '0')}`;
+        }
+
+        const playbackMatch = raw.match(/^PlaybackChannel(\d+)$/i);
+        if (playbackMatch) {
+            return `Replay_${String(Number(playbackMatch[1])).padStart(2, '0')}`;
+        }
+
+        return raw;
+    }
+
+    buildAuthorityVariants(authorities = []) {
+        const normalized = Array.from(new Set(
+            (Array.isArray(authorities) ? authorities : [])
+                .map((entry) => String(entry || '').trim())
+                .filter(Boolean),
+        ));
+
+        const legacy = normalized
+            .map((entry) => this.toLegacyAuthorityToken(entry))
+            .filter(Boolean);
+
+        return [
+            normalized,
+            Array.from(new Set(legacy)),
+        ].filter((list) => list.length > 0);
+    }
+
     parseKeyValuePayload(data) {
         if (typeof data !== 'string') {
             return data && typeof data === 'object' ? data : {};
@@ -290,22 +326,53 @@ class PermissionService {
     /**
      * Modify user permissions
      */
-    async modifyUserPermissions(userName, authorities) {
+    async modifyUserPermissions(userName, authorities, authOptions = {}) {
         const attemptParams = [];
+        const managerName = String(authOptions?.managerName || '').trim();
+        const managerPwd = String(authOptions?.managerPwd || '').trim();
+        const authorityVariants = this.buildAuthorityVariants(authorities);
 
-        const indexedAuthoritiesParams = {
-            action: 'modifyUser',
-            name: userName,
-        };
-        authorities.forEach((auth, index) => {
-            indexedAuthoritiesParams[`authorities[${index}]`] = auth;
-        });
-        attemptParams.push(indexedAuthoritiesParams);
+        authorityVariants.forEach((list) => {
+            const indexedAuthoritiesParams = {
+                action: 'modifyUser',
+                name: userName,
+                ...(managerName ? { managerName } : {}),
+                ...(managerPwd ? { password: managerPwd, managerPwd } : {}),
+            };
+            list.forEach((auth, index) => {
+                indexedAuthoritiesParams[`authorities[${index}]`] = auth;
+            });
+            attemptParams.push(indexedAuthoritiesParams);
 
-        attemptParams.push({
-            action: 'modifyUser',
-            name: userName,
-            AuthorityList: authorities.join(','),
+            const authorityListParams = {
+                action: 'modifyUser',
+                name: userName,
+                ...(managerName ? { managerName } : {}),
+                ...(managerPwd ? { password: managerPwd, managerPwd } : {}),
+            };
+            list.forEach((auth, index) => {
+                authorityListParams[`AuthorityList[${index}]`] = auth;
+            });
+            attemptParams.push(authorityListParams);
+
+            const userAuthorityListParams = {
+                action: 'modifyUser',
+                name: userName,
+                ...(managerName ? { managerName } : {}),
+                ...(managerPwd ? { password: managerPwd, managerPwd } : {}),
+            };
+            list.forEach((auth, index) => {
+                userAuthorityListParams[`user.AuthorityList[${index}]`] = auth;
+            });
+            attemptParams.push(userAuthorityListParams);
+
+            attemptParams.push({
+                action: 'modifyUser',
+                name: userName,
+                AuthorityList: list.join(','),
+                ...(managerName ? { managerName } : {}),
+                ...(managerPwd ? { password: managerPwd, managerPwd } : {}),
+            });
         });
 
         for (let i = 0; i < attemptParams.length; i += 1) {
@@ -323,6 +390,56 @@ class PermissionService {
                     continue;
                 }
                 // suppressed error logging
+                throw error;
+            }
+        }
+
+        return false;
+    }
+
+    async modifyGroupPermissions(groupName, authorities, authOptions = {}) {
+        const managerName = String(authOptions?.managerName || '').trim();
+        const authorityVariants = this.buildAuthorityVariants(authorities);
+        const requestBodyVariants = authorityVariants.map((list) => ({
+            // Follow documentation shape for modifyGroup:
+            // { "name": "groupName", "group": GroupInfo }
+            name: groupName,
+            group: {
+                Name: groupName,
+                AuthorityList: list,
+            },
+        }));
+
+        // Optional variant used by some gateways that keep managerName for auditing.
+        if (managerName) {
+            authorityVariants.forEach((list) => {
+                requestBodyVariants.push({
+                    name: groupName,
+                    group: {
+                        Name: groupName,
+                        AuthorityList: list,
+                    },
+                    managerName,
+                });
+            });
+        }
+
+        // API-only flow for modifyGroup to match device documentation.
+        for (let i = 0; i < requestBodyVariants.length; i += 1) {
+            try {
+                const response = await ApiClient.post('/cgi-bin/api/userManager/modifyGroup', requestBodyVariants[i]);
+                const parsed = this.parseModifyResponse(response?.data);
+                if (parsed) {
+                    return true;
+                }
+            } catch (error) {
+                // Continue trying next payload variant for API endpoint.
+                const status = error?.response?.status;
+                const canTryNextVariant = status === 400 || status === 404 || status === 405 || status === 501;
+                if (canTryNextVariant || this.isActionNotSupported(error)) {
+                    continue;
+                }
+                // If API exists but returned business/auth error, surface it.
                 throw error;
             }
         }

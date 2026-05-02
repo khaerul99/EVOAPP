@@ -64,9 +64,11 @@ const GROUP_PERMISSION_SECTIONS = {
   },
 };
 
+const CHANNELS_PER_PAGE = 20;
+
 function getChannelToken(channelId, action) {
-  const prefix = action === "live" ? "Monitor" : "Replay";
-  return `${prefix}_${String(channelId).padStart(2, "0")}`;
+  const prefix = action === "live" ? "Live" : "Playback";
+  return `${prefix}Channel${channelId}`;
 }
 
 function parseAuthorityValues(authorityText) {
@@ -140,6 +142,7 @@ const UserManagement = () => {
     setGroupFormData,
     groupAuthPassword,
     setGroupAuthPassword,
+    groupAuthMessage,
     groupEditorTab,
     setGroupEditorTab,
     groupPermissionChannels,
@@ -158,12 +161,14 @@ const UserManagement = () => {
     isDeleteAuthOpen,
     deleteAuthPassword,
     setDeleteAuthPassword,
+    deleteAuthMessage,
     closeDeleteAuthModal,
     openDeleteAuthModal,
     confirmDeleteAuth,
     handleAddUser,
     handleAddGroup,
     handleModifyUser,
+    handleModifyGroupAttribute,
     canDeleteGroup,
 
     activeTab,
@@ -179,6 +184,7 @@ const UserManagement = () => {
     selectedGroupInfo,
     selectedAttributeInfo,
     selectedAttributeUser,
+    canEditSelectedAttribute,
     selectedUserForAttribute,
     setSelectedUserForAttribute,
     selectedUserForPermission,
@@ -190,9 +196,26 @@ const UserManagement = () => {
 
   const isAttributeTab = activeTab === "attribute";
   const isUserSelected = selectedAttributeInfo.isUserNode;
-  const canShowPermissionTab = isUserSelected && Boolean(selectedUserForPermission);
+  const isGroupNodeSelected = !isUserSelected && selectedGroup !== "all";
+  const canShowPermissionTab = (isUserSelected && Boolean(selectedUserForPermission)) || isGroupNodeSelected;
   const selectedGroupAuthorities = parseAuthorityValues(groupFormData.authority);
+  const canSubmitAddGroup = selectedGroupAuthorities.length > 0;
   const selectedGroupObject = userGroups.find((group) => group.groupName === selectedGroup) || null;
+  const selectedGroupPermissionAuthorities = React.useMemo(() => {
+    if (!selectedGroupObject) {
+      return [];
+    }
+
+    const rawAuthorities = selectedGroupObject?.raw?.AuthorityList
+      || selectedGroupObject?.raw?.authorityList
+      || selectedGroupObject?.raw?.authority
+      || selectedGroupObject?.raw?.Authority
+      || "";
+
+    return Array.isArray(rawAuthorities)
+      ? rawAuthorities.map((entry) => String(entry || "").trim()).filter(Boolean)
+      : parseAuthorityValues(rawAuthorities);
+  }, [selectedGroupObject]);
   const deleteTarget = selectedAttributeInfo.isUserNode && selectedAttributeUser
     ? {
         kind: 'user',
@@ -219,8 +242,69 @@ const UserManagement = () => {
 
   const [showDeletePassword, setShowDeletePassword] = React.useState(false);
   const [showGroupPassword, setShowGroupPassword] = React.useState(false);
+  const [groupAttrName, setGroupAttrName] = React.useState("");
+  const [groupAttrMemo, setGroupAttrMemo] = React.useState("");
+  const [isGroupAttrAuthOpen, setIsGroupAttrAuthOpen] = React.useState(false);
+  const [groupAttrAuthPassword, setGroupAttrAuthPassword] = React.useState("");
+  const [showGroupAttrAuthPassword, setShowGroupAttrAuthPassword] = React.useState(false);
+  const [showAllChannels, setShowAllChannels] = React.useState(false);
+  const [channelPage, setChannelPage] = React.useState(1);
   const deletePasswordFormRef = React.useRef(null);
   const groupPasswordFormRef = React.useRef(null);
+  const groupAttrPasswordFormRef = React.useRef(null);
+  const canEditGroupAttributeInline = !isUserSelected && selectedGroup !== "all" && canEditSelectedAttribute;
+
+  const allPermissionChannels = React.useMemo(() => {
+    const normalized = Array.isArray(groupPermissionChannels)
+      ? [...groupPermissionChannels]
+          .map((channel) => ({
+            id: Number(channel?.id),
+            name: String(channel?.name || '').trim(),
+          }))
+          .filter((channel) => Number.isFinite(channel.id) && channel.id > 0)
+          .sort((left, right) => left.id - right.id)
+      : [];
+
+    if (!showAllChannels) {
+      return normalized;
+    }
+
+    const maxExistingId = normalized.reduce((max, channel) => Math.max(max, channel.id), 0);
+    const targetCount = Math.max(maxExistingId, 64);
+    const byId = new Map(normalized.map((channel) => [channel.id, channel]));
+
+    return Array.from({ length: targetCount }, (_, index) => {
+      const id = index + 1;
+      const existing = byId.get(id);
+      return {
+        id,
+        name: existing?.name || `Channel${id}`,
+      };
+    });
+  }, [groupPermissionChannels, showAllChannels]);
+
+  const channelTotalPages = Math.max(1, Math.ceil(allPermissionChannels.length / CHANNELS_PER_PAGE));
+
+  const pagedPermissionChannels = React.useMemo(() => {
+    const startIndex = (channelPage - 1) * CHANNELS_PER_PAGE;
+    const endIndex = startIndex + CHANNELS_PER_PAGE;
+    return allPermissionChannels.slice(startIndex, endIndex);
+  }, [allPermissionChannels, channelPage]);
+
+  const channelPageNumbers = React.useMemo(
+    () => Array.from({ length: channelTotalPages }, (_, index) => index + 1),
+    [channelTotalPages],
+  );
+
+  React.useEffect(() => {
+    setChannelPage(1);
+  }, [showAllChannels]);
+
+  React.useEffect(() => {
+    if (channelPage > channelTotalPages) {
+      setChannelPage(channelTotalPages);
+    }
+  }, [channelPage, channelTotalPages]);
 
   React.useEffect(() => {
     if (!isDeleteAuthOpen) {
@@ -301,6 +385,20 @@ const UserManagement = () => {
       document.body.style.overflow = '';
     };
   }, [isGroupAuthOpen, isDeleteAuthOpen]);
+
+  React.useEffect(() => {
+    if (!canEditGroupAttributeInline) {
+      return;
+    }
+    const initialMemo = String(
+      selectedGroupObject?.memo
+      || selectedGroupObject?.raw?.Memo
+      || selectedGroupObject?.raw?.memo
+      || "",
+    );
+    setGroupAttrName(String(selectedGroupObject?.groupName || ""));
+    setGroupAttrMemo(initialMemo);
+  }, [canEditGroupAttributeInline, selectedGroupObject]);
 
   return (
     <div className="space-y-6 duration-500 animate-in fade-in md:space-y-8">
@@ -411,7 +509,7 @@ const UserManagement = () => {
                 setSelectedUserForAttribute(null);
                 setSelectedUserForPermission(null);
                 setActiveTab("attribute");
-                // Toggle tree expansion so header can both open and close
+                
                 setIsTreeExpanded((prev) => !prev);
               }}
               className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition-colors border ${isTreeExpanded ? "border-navy/80 bg-navy/5 text-navy" : "border-navy/15 bg-white text-navy/60 hover:bg-navy/5 hover:text-navy"}`}
@@ -535,8 +633,13 @@ const UserManagement = () => {
                       </label>
                       <input
                         type="text"
-                        value={selectedAttributeInfo.name}
-                        readOnly
+                        value={
+                          canEditGroupAttributeInline
+                            ? groupAttrName
+                            : selectedAttributeInfo.name
+                        }
+                        readOnly={!canEditGroupAttributeInline}
+                        onChange={(event) => setGroupAttrName(event.target.value)}
                         className="w-full px-4 py-2 text-sm font-medium border rounded-md outline-none border-navy/10 bg-background text-navy"
                       />
                     </div>
@@ -576,13 +679,18 @@ const UserManagement = () => {
                         Description
                       </label>
                       <textarea
-                        value={selectedAttributeInfo.description}
-                        readOnly
+                        value={
+                          canEditGroupAttributeInline
+                            ? groupAttrMemo
+                            : selectedAttributeInfo.description
+                        }
+                        readOnly={!canEditGroupAttributeInline}
+                        onChange={(event) => setGroupAttrMemo(event.target.value)}
                         rows={3}
                         className="w-full px-4 py-2 text-sm font-medium border rounded-md outline-none border-navy/10 bg-background text-navy"
                       />
                     </div>
-                    {selectedAttributeInfo.isUserNode && (
+                    {selectedAttributeInfo.isUserNode && canEditSelectedAttribute && (
                       <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
@@ -596,6 +704,38 @@ const UserManagement = () => {
                         >
                           <Edit3 size={12} />
                           Edit Data
+                        </button>
+                      </div>
+                    )}
+                    {!selectedAttributeInfo.isUserNode && selectedGroup !== "all" && canEditSelectedAttribute && (
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setGroupAttrAuthPassword("");
+                            setShowGroupAttrAuthPassword(false);
+                            setIsGroupAttrAuthOpen(true);
+                          }}
+                          disabled={!isUserManagementSupported || submitting}
+                          className="inline-flex items-center gap-1 rounded-md bg-navy px-3 py-2 text-[10px] font-black uppercase tracking-wider text-white disabled:opacity-50"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const initialMemo = String(
+                              selectedGroupObject?.memo
+                              || selectedGroupObject?.raw?.Memo
+                              || selectedGroupObject?.raw?.memo
+                              || "",
+                            );
+                            setGroupAttrName(String(selectedGroupObject?.groupName || ""));
+                            setGroupAttrMemo(initialMemo);
+                          }}
+                          className="inline-flex items-center gap-1 rounded-md border border-navy/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-navy/70 hover:bg-navy/5"
+                        >
+                          Cancel
                         </button>
                       </div>
                     )}
@@ -715,6 +855,12 @@ const UserManagement = () => {
                     ? ""
                     : selectedUserForPermission
                 }
+                groupName={!isUserSelected && selectedGroup !== "all" ? selectedGroup : ""}
+                authoritiesOverride={
+                  !isUserSelected && selectedGroup !== "all"
+                    ? selectedGroupPermissionAuthorities
+                    : []
+                }
               />
             )}
           </div>
@@ -739,6 +885,12 @@ const UserManagement = () => {
             <p className="mb-6 text-[11px] font-semibold text-navy/50">
               Masukkan password akun aktif sebelum menambahkan group baru.
             </p>
+
+            {groupAuthMessage && (
+              <div className="mb-4 rounded-2xl border border-danger/20 bg-danger/10 px-4 py-3 text-[11px] font-bold text-danger">
+                {groupAuthMessage}
+              </div>
+            )}
 
             <form ref={groupPasswordFormRef} onSubmit={confirmGroupAuth} className="space-y-4" autoComplete="off" noValidate>
               <input
@@ -802,6 +954,83 @@ const UserManagement = () => {
         </div>
       )}
 
+      {isGroupAttrAuthOpen && (
+        <div className="fixed top-[-40px] left-0 right-0 bottom-0 z-[120] min-h-screen w-screen flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl p-6 bg-white border shadow-2xl rounded-3xl border-navy/10 md:p-8">
+            <h3 className="mb-2 text-sm font-black tracking-widest uppercase text-navy">
+              Authentication Password
+            </h3>
+            <p className="mb-6 text-[11px] font-semibold text-navy/50">
+              Masukkan password akun aktif untuk menyimpan perubahan attribute.
+            </p>
+            <form
+              ref={groupAttrPasswordFormRef}
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (!selectedGroupObject) {
+                  return;
+                }
+                const updated = await handleModifyGroupAttribute({
+                  group: selectedGroupObject,
+                  nextName: groupAttrName,
+                  memo: groupAttrMemo,
+                  authPassword: groupAttrAuthPassword,
+                });
+                if (updated) {
+                  setIsGroupAttrAuthOpen(false);
+                }
+              }}
+              className="space-y-4"
+              autoComplete="off"
+              noValidate
+            >
+              <input
+                type="text"
+                value={currentUsername}
+                readOnly
+                className="w-full px-4 py-2 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy/60"
+              />
+              <div className="relative">
+                <input
+                  type={showGroupAttrAuthPassword ? "text" : "password"}
+                  value={groupAttrAuthPassword}
+                  onChange={(event) => setGroupAttrAuthPassword(event.target.value)}
+                  placeholder="password"
+                  className="w-full px-4 py-2 pr-10 text-xs font-bold border outline-none rounded-xl border-navy/10 bg-background text-navy focus:border-navy/30"
+                  autoComplete="new-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowGroupAttrAuthPassword((previous) => !previous)}
+                  className="absolute -translate-y-1/2 right-3 top-1/2 text-navy/50"
+                >
+                  {showGroupAttrAuthPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsGroupAttrAuthOpen(false)}
+                  className="px-4 py-2 text-xs font-black tracking-widest uppercase border rounded-xl border-navy/10 text-navy/70"
+                  disabled={submitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center px-4 py-2 text-xs font-black tracking-widest text-white uppercase rounded-xl bg-navy disabled:opacity-60"
+                  disabled={submitting}
+                >
+                  {submitting && <Loader2 size={14} className="mr-2 animate-spin" />}
+                  OK
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {isDeleteAuthOpen && (
         <div className="fixed top-[-40px] left-0 right-0 bottom-0 z-[100] min-h-screen w-screen flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
           <div className="w-full max-w-xl p-6 bg-white border shadow-2xl rounded-3xl border-navy/10 md:p-8">
@@ -811,6 +1040,12 @@ const UserManagement = () => {
             <p className="mb-6 text-[11px] font-semibold text-navy/50">
               Masukkan password dulu untuk menghapus {deleteTarget?.kind === 'group' ? 'group' : 'user'} ini.
             </p>
+
+            {deleteAuthMessage && (
+              <div className="mb-4 rounded-2xl border border-danger/20 bg-danger/10 px-4 py-3 text-[11px] font-bold text-danger">
+                {deleteAuthMessage}
+              </div>
+            )}
 
             <form ref={deletePasswordFormRef} onSubmit={confirmDeleteAuth} className="space-y-4" autoComplete="off" noValidate>
               <input
@@ -876,7 +1111,7 @@ const UserManagement = () => {
 
       {isAddGroupOpen && (
         <div className="fixed top-[-40px] inset-0 z-[100] flex items-center justify-center bg-navy/30 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl p-6 bg-white border shadow-2xl rounded-3xl border-navy/10 md:p-8">
+          <div className="w-full max-w-3xl p-6 bg-white border shadow-2xl rounded-3xl border-navy/10 md:p-8">
             <h3 className="mb-2 text-sm font-black tracking-widest uppercase text-navy">
               Add New Group
             </h3>
@@ -947,16 +1182,20 @@ const UserManagement = () => {
                   />
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_1fr_1.75fr]">
+                <div className="pb-1 overflow-x-auto">
+                  <div className="grid min-w-[940px] grid-cols-[1fr_1fr_1fr_1.75fr] gap-3">
                   {Object.entries(GROUP_PERMISSION_SECTIONS).map(([sectionKey, section]) => {
                     const sectionTokens = getSectionTokens(sectionKey);
                     const selectAllChecked = sectionTokens.length > 0 && sectionTokens.every((token) => selectedGroupAuthorities.includes(token));
 
                     return (
-                      <div key={sectionKey} className="bg-white border border-navy/10">
+                      <div key={sectionKey} className="overflow-hidden bg-white border rounded-xl border-navy/10">
                         <div className="flex items-center justify-between px-4 py-3">
-                          <h3 className="text-lg font-semibold text-navy/90">{section.label}</h3>
-                          <label className="inline-flex items-center gap-2 text-xs font-medium text-navy/60">
+                          <h3 className="text-2xl font-semibold text-navy/90">{section.label}</h3>
+                          
+                        </div>
+                        <div className="px-4 py-3 space-y-3 border-t border-navy/10 min-h-[300px]">
+                        <label className="inline-flex items-center gap-2 text-xs font-medium whitespace-nowrap text-navy/60">
                             <input
                               type="checkbox"
                               checked={selectAllChecked}
@@ -970,12 +1209,10 @@ const UserManagement = () => {
                             />
                             Select All
                           </label>
-                        </div>
-                        <div className="px-4 py-3 space-y-3 border-t border-navy/10">
                           {section.items.map((item) => {
                             const checked = selectedGroupAuthorities.includes(item.token);
                             return (
-                              <label key={`${sectionKey}-${item.label}`} className="flex items-center gap-2 text-sm text-navy/70">
+                              <label key={`${sectionKey}-${item.label}`} className="flex items-center gap-2 text-sm leading-tight text-navy/70">
                                 <input
                                   type="checkbox"
                                   checked={checked}
@@ -1000,22 +1237,38 @@ const UserManagement = () => {
                     );
                   })}
 
-                  <div className="bg-white border border-navy/10">
+                  <div className="overflow-hidden bg-white border rounded-xl border-navy/10">
                     <div className="flex items-center justify-between px-4 py-3">
-                      <h3 className="text-lg font-semibold text-navy/90">Channel</h3>
-                      <label className="inline-flex items-center gap-2 text-xs font-medium text-navy/60">
+                      <div className="flex items-center gap-4">
+                        <h3 className="text-2xl font-semibold text-navy/90">Channel</h3>
+                        <label className="inline-flex items-center gap-2 text-sm font-medium whitespace-nowrap text-navy/70">
+                          <span>Show All</span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={showAllChannels}
+                            onClick={() => setShowAllChannels((prev) => !prev)}
+                            className={`relative h-6 w-10 rounded-full transition-colors ${showAllChannels ? 'bg-sky-500' : 'bg-navy/25'}`}
+                          >
+                            <span
+                              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${showAllChannels ? '-translate-x-0.5' : '-translate-x-4'}`}
+                            />
+                          </button>
+                        </label>
+                      </div>
+                      <label className="inline-flex items-center gap-2 text-xs font-medium whitespace-nowrap text-navy/60">
                         <input
                           type="checkbox"
                           checked={
-                            groupPermissionChannels.length > 0
-                            && groupPermissionChannels.every((channel) => {
+                            allPermissionChannels.length > 0
+                            && allPermissionChannels.every((channel) => {
                               const liveToken = getChannelToken(channel.id, "live");
                               const playbackToken = getChannelToken(channel.id, "playback");
                               return isChannelChecked(liveToken) && isChannelChecked(playbackToken);
                             })
                           }
                           onChange={(event) => {
-                            const nextAuthorities = groupPermissionChannels.flatMap((channel) => [
+                            const nextAuthorities = allPermissionChannels.flatMap((channel) => [
                               getChannelToken(channel.id, "live"),
                               getChannelToken(channel.id, "playback"),
                             ]);
@@ -1030,23 +1283,23 @@ const UserManagement = () => {
                         Select All
                       </label>
                     </div>
-                    <div className="px-4 py-3 space-y-3 border-t border-navy/10">
+                    <div className="px-4 py-3 space-y-3 border-t border-navy/10 min-h-[300px]">
                       <div className="grid grid-cols-[1.7fr_1fr_1fr] text-sm text-navy/60">
                         <div>Channel</div>
-                        <div>Live</div>
-                        <div>Playback</div>
+                        <div className="text-center">Live</div>
+                        <div className="text-center">Playback</div>
                       </div>
 
-                      {groupPermissionChannels.map((channel) => {
+                      {pagedPermissionChannels.map((channel) => {
                         const liveToken = getChannelToken(channel.id, "live");
                         const playbackToken = getChannelToken(channel.id, "playback");
                         const liveChecked = selectedGroupAuthorities.includes(liveToken);
                         const playbackChecked = selectedGroupAuthorities.includes(playbackToken);
 
                         return (
-                          <div key={`group-channel-${channel.id}`} className="grid grid-cols-[1.7fr_1fr_1fr] items-start text-sm text-navy/60">
-                            <div>{channel.id}-{channel.name}</div>
-                            <label className="inline-flex items-center gap-2">
+                          <div key={`group-channel-${channel.id}`} className="grid grid-cols-[1.7fr_1fr_1fr] items-start gap-2 text-sm text-navy/60">
+                            <div className="pr-2 leading-tight break-words">{channel.id}-{channel.name}</div>
+                            <label className="inline-flex items-center justify-center gap-2">
                               <input
                                 type="checkbox"
                                 checked={liveChecked}
@@ -1064,7 +1317,7 @@ const UserManagement = () => {
                               />
                               <span>Enable</span>
                             </label>
-                            <label className="inline-flex items-center gap-2">
+                            <label className="inline-flex items-center justify-center gap-2">
                               <input
                                 type="checkbox"
                                 checked={playbackChecked}
@@ -1086,8 +1339,42 @@ const UserManagement = () => {
                         );
                       })}
 
-                      <div className="pt-1 text-sm text-navy/80">Total {groupPermissionChannels.length} items</div>
+                      <div className="flex items-center justify-between gap-3 pt-1 text-sm text-navy/80">
+                        <span>Total {allPermissionChannels.length} items</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setChannelPage((prev) => Math.max(1, prev - 1))}
+                            disabled={channelPage <= 1}
+                            className="px-2 py-1 text-xs border rounded border-navy/20 text-navy/70 disabled:opacity-40"
+                          >
+                            &lt;
+                          </button>
+                          <div className="flex items-center gap-1">
+                            {channelPageNumbers.map((pageNumber) => (
+                              <button
+                                key={`channel-page-${pageNumber}`}
+                                type="button"
+                                onClick={() => setChannelPage(pageNumber)}
+                                className={`min-w-7 px-2 py-1 text-xs border rounded ${pageNumber === channelPage ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-navy/20 text-navy/70'}`}
+                              >
+                                {pageNumber}
+                              </button>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setChannelPage((prev) => Math.min(channelTotalPages, prev + 1))}
+                            disabled={channelPage >= channelTotalPages}
+                            className="px-2 py-1 text-xs border rounded border-navy/20 text-navy/70 disabled:opacity-40"
+                          >
+                            &gt;
+                          </button>
+                          <span className="ml-1 text-xs text-navy/60">{CHANNELS_PER_PAGE} / page</span>
+                        </div>
+                      </div>
                     </div>
+                  </div>
                   </div>
                 </div>
               )}
@@ -1104,7 +1391,8 @@ const UserManagement = () => {
                 <button
                   type="submit"
                   className="inline-flex items-center px-4 py-2 text-xs font-black tracking-widest text-white uppercase rounded-xl bg-navy disabled:opacity-60"
-                  disabled={submitting}
+                  disabled={submitting || !canSubmitAddGroup}
+                  title={!canSubmitAddGroup ? "Pilih minimal satu permission" : "Submit Add Group"}
                 >
                   {submitting && (
                     <Loader2 size={14} className="mr-2 animate-spin" />

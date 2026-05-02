@@ -675,6 +675,52 @@ export const userService = {
         return response?.data;
     },
 
+    modifyGroup: async ({ payload = {}, authPassword = '' }) => {
+        const groupName = String(payload?.name || '').trim();
+        const nextGroupName = String(payload?.nextName || payload?.name || '').trim();
+        if (!groupName || !nextGroupName) {
+            throw new Error('Nama group wajib diisi.');
+        }
+
+        const memo = String(payload?.memo || '').trim();
+        const authorityList = Array.isArray(payload?.authorities)
+            ? payload.authorities.map((entry) => String(entry || '').trim()).filter(Boolean)
+            : String(payload?.authority || '')
+                .split(',')
+                .map((entry) => String(entry || '').trim())
+                .filter(Boolean);
+
+        const requestBody = {
+            name: groupName,
+            group: {
+                Name: nextGroupName,
+            },
+        };
+
+        if (memo) {
+            requestBody.group.Memo = memo;
+        }
+
+        if (authorityList.length > 0) {
+            requestBody.group.AuthorityList = authorityList;
+        }
+
+        const state = authStore.getState();
+        const managerName = String(state?.auth?.username || '').trim();
+        const password = String(authPassword || '').trim();
+
+        if (managerName) {
+            requestBody.managerName = managerName;
+        }
+        if (password) {
+            requestBody.password = password;
+            requestBody.managerPwd = password;
+        }
+
+        const response = await ApiClient.post('/cgi-bin/api/userManager/modifyGroup', requestBody);
+        return response?.data;
+    },
+
     getUserByName: async (name) => {
         const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
             params: {
