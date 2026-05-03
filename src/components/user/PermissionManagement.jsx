@@ -6,7 +6,6 @@ import {
     EyeOff,
 } from 'lucide-react';
 import { usePermissionManagement } from '../../hooks/user/usePermissionManagement';
-import { authStore } from '../../stores/authSlice';
 
 function PermissionCheckbox({ checked, label, onChange, disabled = false }) {
     return (
@@ -24,7 +23,6 @@ function PermissionCheckbox({ checked, label, onChange, disabled = false }) {
 }
 
 const PermissionManagement = ({ userName, groupName = "", authoritiesOverride = [] }) => {
-    const currentUsername = String(authStore.getState()?.auth?.username || '').trim();
     const {
         loading,
         error,
@@ -168,11 +166,7 @@ const PermissionManagement = ({ userName, groupName = "", authoritiesOverride = 
                     {saveSuccessMessage}
                 </div>
             )}
-            {isUserNode && (
-                <div className="p-3 text-xs font-semibold border rounded-md border-sky-200 bg-sky-50 text-sky-700">
-                    Permission user mengikuti group tempat user berada. Untuk mengubah permission, pilih node group.
-                </div>
-            )}
+        
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_1fr_1.75fr]">
                 {['config', 'operation', 'control'].map((sectionKey) => {
                     const section = PERMISSION_CATEGORIES[sectionKey];
@@ -336,13 +330,6 @@ const PermissionManagement = ({ userName, groupName = "", authoritiesOverride = 
                             </div>
                         )}
                         <form onSubmit={onConfirmApply} className="space-y-4" autoComplete="off" noValidate>
-                            <input
-                                type="text"
-                                value={currentUsername}
-                                readOnly
-                                className="w-full rounded-xl border border-navy/15 bg-background px-4 py-3 text-xs font-bold text-navy/70 outline-none"
-                                aria-label="Current username"
-                            />
                             <div className="relative">
                                 <input
                                     type={showPassword ? 'text' : 'password'}

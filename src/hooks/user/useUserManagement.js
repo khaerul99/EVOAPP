@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { userService } from '../../services/user/user.service';
 import { cameraService } from '../../services/camera/camera.service';
 import { authStore } from '../../stores/authSlice';
@@ -98,6 +98,56 @@ function buildPayloadFromForm(formData) {
     };
 }
 
+function cleanErrorText(value) {
+    return String(value || '')
+        .replace(/\s+/g, ' ')
+        .replace(/<[^>]*>/g, ' ')
+        .trim();
+}
+
+function getSelfPasswordChangeErrorMessage(error) {
+    const status = error?.response?.status;
+    const rawResponse = error?.response?.data;
+    const responseText = cleanErrorText(
+        typeof rawResponse === 'string'
+            ? rawResponse
+            : rawResponse?.message || rawResponse?.error || rawResponse?.msg || rawResponse?.detail || rawResponse?.description || rawResponse?.reason || rawResponse?.errorMessage || rawResponse?.errorMsg,
+    ).toLowerCase();
+
+    if (
+        status === 401
+        || status === 403
+        || responseText.includes('old password')
+        || responseText.includes('invalid old password')
+        || responseText.includes('incorrect old password')
+        || responseText.includes('old password incorrect')
+        || responseText.includes('old password wrong')
+        || responseText.includes('password lama')
+        || responseText.includes('password salah')
+        || responseText.includes('password tidak benar')
+        || responseText.includes('pwdold')
+        || responseText.includes('password old')
+        || responseText.includes('wrong password')
+        || responseText.includes('incorrect password')
+    ) {
+        return 'Old password salah.';
+    }
+
+    if (responseText.includes('too weak') || responseText.includes('weak password') || responseText.includes('password too weak')) {
+        return 'Password terlalu lemah.';
+    }
+
+    if (responseText) {
+        return cleanErrorText(responseText).slice(0, 240);
+    }
+
+    if (status === 400) {
+        return 'Gagal memperbarui password. Pastikan old password benar.';
+    }
+
+    return error?.message || 'Gagal memperbarui password. Pastikan old password benar.';
+}
+
 export function useUserManagement() {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -111,10 +161,13 @@ export function useUserManagement() {
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [isGroupAuthOpen, setIsGroupAuthOpen] = useState(false);
     const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
+    const [isAddUserAuthOpen, setIsAddUserAuthOpen] = useState(false);
     const [formData, setFormData] = useState(createInitialFormState);
     const [groupFormData, setGroupFormData] = useState(createInitialGroupFormState);
     const [groupAuthPassword, setGroupAuthPassword] = useState('');
     const [groupAuthMessage, setGroupAuthMessage] = useState('');
+    const [addUserAuthPassword, setAddUserAuthPassword] = useState('');
+    const [addUserAuthMessage, setAddUserAuthMessage] = useState('');
     const [groupEditorTab, setGroupEditorTab] = useState('attribute');
     const [groupPermissionChannels, setGroupPermissionChannels] = useState([]);
     const [editTarget, setEditTarget] = useState(null);
@@ -132,6 +185,51 @@ export function useUserManagement() {
     const [deleteAuthMessage, setDeleteAuthMessage] = useState('');
     const [pendingDeleteTarget, setPendingDeleteTarget] = useState(null);
     const [deleteNotification, setDeleteNotification] = useState(null);
+    const [addEditNotification, setAddEditNotification] = useState(null);
+
+    // UI State - Password Visibility
+    const [showDeletePassword, setShowDeletePassword] = useState(false);
+    const [showGroupPassword, setShowGroupPassword] = useState(false);
+    const [showUserPwdAuthPassword, setShowUserPwdAuthPassword] = useState(false);
+    const [showUserPwdManagerPassword, setShowUserPwdManagerPassword] = useState(false);
+    const [showUserPwdNewValue, setShowUserPwdNewValue] = useState(false);
+    const [showUserPwdOldValue, setShowUserPwdOldValue] = useState(false);
+    const [showUserPwdConfirmValue, setShowUserPwdConfirmValue] = useState(false);
+    const [showAddUserAuthPassword, setShowAddUserAuthPassword] = useState(false);
+    const [showGroupAttrAuthPassword, setShowGroupAttrAuthPassword] = useState(false);
+
+    // UI State - Modal Control
+    const [isUserPwdManagerOpen, setIsUserPwdManagerOpen] = useState(false);
+    const [isUserPwdAuthOpen, setIsUserPwdAuthOpen] = useState(false);
+    const [isGroupAttrAuthOpen, setIsGroupAttrAuthOpen] = useState(false);
+
+    // UI State - Form Inputs
+    const [userPwdAuthPassword, setUserPwdAuthPassword] = useState('');
+    const [userPwdManagerPassword, setUserPwdManagerPassword] = useState('');
+    const [userPwdNewValue, setUserPwdNewValue] = useState('');
+    const [userPwdOldValue, setUserPwdOldValue] = useState('');
+    const [userPwdConfirmValue, setUserPwdConfirmValue] = useState('');
+    const [userDescriptionDraft, setUserDescriptionDraft] = useState('');
+    const [userPwdAuthMode, setUserPwdAuthMode] = useState('changePassword');
+    const [pendingUserDescriptionApply, setPendingUserDescriptionApply] = useState(null);
+    const [editAuthPassword, setEditAuthPassword] = useState('');
+    const [addUserConfirmPassword, setAddUserConfirmPassword] = useState('');
+    const [groupAttrName, setGroupAttrName] = useState('');
+    const [groupAttrMemo, setGroupAttrMemo] = useState('');
+    const [groupAttrAuthPassword, setGroupAttrAuthPassword] = useState('');
+
+    // UI State - Messages & Errors
+    const [userPwdModalMessage, setUserPwdModalMessage] = useState('');
+    const [userPwdOldError, setUserPwdOldError] = useState('');
+
+    // UI State - Display & Pagination
+    const [showAllChannels, setShowAllChannels] = useState(false);
+    const [channelPage, setChannelPage] = useState(1);
+
+    // Refs
+    const deletePasswordFormRef = useRef(null);
+    const groupPasswordFormRef = useRef(null);
+    const groupAttrPasswordFormRef = useRef(null);
 
     const loadAllUsers = useCallback(async () => {
         try {
@@ -352,29 +450,76 @@ export function useUserManagement() {
 
     const isGroupExpanded = useCallback((groupName) => Boolean(expandedGroups[groupName]), [expandedGroups]);
 
+    const openAddUserAuthModal = useCallback(() => {
+        setIsAddUserAuthOpen(true);
+        setAddUserAuthPassword('');
+        setAddUserAuthMessage('');
+    }, []);
+
+    const closeAddUserAuthModal = useCallback(() => {
+        setIsAddUserAuthOpen(false);
+        setAddUserAuthPassword('');
+        setAddUserAuthMessage('');
+    }, []);
+
+    const confirmAddUserAuth = useCallback(async (event) => {
+        event.preventDefault();
+        if (!String(addUserAuthPassword || '').trim()) {
+            setAddUserAuthMessage('Password autentikasi wajib diisi.');
+            return;
+        }
+
+        setAddUserAuthMessage('');
+        try {
+            const probe = await loginWithDigest(currentUsername, String(addUserAuthPassword || ''));
+            if (probe && probe.requiresDigest === false) {
+                setAddUserAuthMessage('Perangkat tidak dapat memverifikasi kredensial melalui endpoint probe. Operasi dibatalkan.');
+                return;
+            }
+
+            setIsAddUserAuthOpen(false);
+            setIsAddOpen(true);
+        } catch (error) {
+            const serverMessage =
+                (error?.response && (typeof error.response.data === 'string' ? error.response.data : error.response.data?.message))
+                || error?.message
+                || 'Gagal memvalidasi password. Periksa password autentikasi.';
+            setAddUserAuthMessage(String(serverMessage));
+        }
+    }, [currentUsername, addUserAuthPassword]);
+
     const openAddModal = useCallback(() => {
         setEditTarget(null);
         resetForm();
+        setFormData((previous) => ({
+            ...previous,
+            group: selectedGroup && selectedGroup !== 'all' ? String(selectedGroup) : '',
+        }));
         setIsEditOpen(false);
-        setIsAddOpen(true);
-    }, [resetForm]);
+        openAddUserAuthModal();
+    }, [resetForm, openAddUserAuthModal, selectedGroup]);
 
     const openEditModal = useCallback((user) => {
         setEditTarget(user);
         setFormData(createEditFormState(user));
+        setEditAuthPassword('');
         setIsAddOpen(false);
         setIsEditOpen(true);
     }, []);
 
     const closeAddModal = useCallback(() => {
         setIsAddOpen(false);
+        setIsAddUserAuthOpen(false);
         resetForm();
+        setAddUserAuthPassword('');
+        setAddUserAuthMessage('');
     }, [resetForm]);
 
     const closeEditModal = useCallback(() => {
         setIsEditOpen(false);
         setEditTarget(null);
         resetForm();
+        setEditAuthPassword('');
     }, [resetForm]);
 
     const closeGroupAuthModal = useCallback(() => {
@@ -538,12 +683,25 @@ export function useUserManagement() {
             setSubmitting(true);
             setStatusMessage('');
             await userService.addUser({
-                payload: buildPayloadFromForm(formData),
+                payload: {
+                    name: formData.name,
+                    password: formData.password,
+                    group: formData.group,
+                    remark: formData.remark,
+                    sharable: formData.sharable,
+                    reserved: formData.reserved,
+                    needModPwd: formData.needModPwd,
+                },
                 extraQuery: formData.extraQuery,
             });
             closeAddModal();
             await loadAllUsers();
             setStatusMessage('User berhasil ditambahkan.');
+            setAddEditNotification({
+                type: 'success',
+                title: 'User Ditambahkan',
+                message: `User "${formData.name}" telah berhasil ditambahkan.`,
+            });
         } catch (error) {
             const status = error?.response?.status;
             if (status === 501) {
@@ -605,13 +763,122 @@ export function useUserManagement() {
 
             closeEditModal();
             await loadAllUsers();
-            setStatusMessage(shouldModifyPassword ? 'User dan password berhasil diperbarui.' : 'User berhasil diperbarui.');
+            const successMessage = shouldModifyPassword ? 'User dan password berhasil diperbarui.' : 'User berhasil diperbarui.';
+            setStatusMessage(successMessage);
+            setAddEditNotification({
+                type: 'success',
+                title: 'User Diperbarui',
+                message: `User "${formData.name}" telah berhasil diperbarui.`,
+            });
         } catch {
             setStatusMessage('Gagal memperbarui user. Pastikan query parameter sesuai kebutuhan perangkat.');
         } finally {
             setSubmitting(false);
         }
     }, [closeEditModal, formData, loadAllUsers]);
+
+    const handleModifyUserDescription = useCallback(async ({ user, remark = '' }) => {
+        const username = String(user?.name || '').trim();
+        if (!username || username === '-') {
+            setStatusMessage('Nama user tidak valid.');
+            return false;
+        }
+
+        try {
+            setSubmitting(true);
+            setStatusMessage('');
+
+            await userService.modifyUser({
+                payload: {
+                    name: username,
+                    group: String(user?.group || '').trim(),
+                    authority: Array.isArray(user?.authorities) ? user.authorities.join(',') : String(user?.authority || '').trim(),
+                    remark: String(remark || '').trim(),
+                    sharable: user?.raw?.Sharable !== undefined ? String(user.raw.Sharable).toLowerCase() === 'true' : true,
+                    reserved: user?.raw?.Reserved !== undefined ? String(user.raw.Reserved).toLowerCase() === 'true' : false,
+                    needModPwd: user?.raw?.NeedModPwd !== undefined ? String(user.raw.NeedModPwd).toLowerCase() === 'true' : false,
+                },
+                extraQuery: '',
+            });
+
+            await loadAllUsers();
+            setStatusMessage('Description user berhasil diperbarui.');
+            setAddEditNotification({
+                type: 'success',
+                title: 'User Diperbarui',
+                message: `Description user "${username}" telah berhasil diperbarui.`,
+            });
+            return true;
+        } catch {
+            setStatusMessage('Gagal memperbarui description user.');
+            return false;
+        } finally {
+            setSubmitting(false);
+        }
+    }, [loadAllUsers]);
+
+    // Manager-based password modification removed. Use `handleModifyOwnPassword` for self password changes.
+
+    const handleModifyOwnPassword = useCallback(async ({ user, oldPassword = '', newPassword = '' }) => {
+        const username = String(user?.name || '').trim();
+        if (!username || username === '-') {
+            setStatusMessage('Nama user tidak valid.');
+            return { success: false, message: 'Nama user tidak valid.' };
+        }
+
+        if (!String(oldPassword || '').trim() || !String(newPassword || '').trim()) {
+            setStatusMessage('Old password dan new password wajib diisi.');
+            return { success: false, message: 'Old password dan new password wajib diisi.' };
+        }
+
+        try {
+            setSubmitting(true);
+            setStatusMessage('');
+
+            await userService.modifyPassword({
+                name: username,
+                pwd: String(newPassword || '').trim(),
+                pwdOld: String(oldPassword || '').trim(),
+                extraQuery: '',
+            });
+
+            await loadAllUsers();
+            setStatusMessage('Password berhasil diperbarui.');
+            return { success: true, message: 'Password berhasil diperbarui.' };
+        } catch (error) {
+            const message = getSelfPasswordChangeErrorMessage(error);
+            setStatusMessage(message);
+            return {
+                success: false,
+                message,
+                kind: message === 'Old password salah.' ? 'old-password' : message === 'Password terlalu lemah.' ? 'weak-password' : 'general',
+            };
+        } finally {
+            setSubmitting(false);
+        }
+    }, [loadAllUsers]);
+
+    const verifyActiveUserPassword = useCallback(async ({ password = '' }) => {
+        const authPassword = String(password || '').trim();
+        if (!authPassword) {
+            setStatusMessage('Password autentikasi wajib diisi.');
+            return false;
+        }
+
+        try {
+            const probe = await loginWithDigest(currentUsername, authPassword);
+            if (probe && probe.requiresDigest === false) {
+                setStatusMessage('Perangkat tidak dapat memverifikasi kredensial melalui endpoint probe.');
+                return false;
+            }
+            return true;
+        } catch {
+            setStatusMessage('Password autentikasi salah.');
+            return false;
+        }
+    }, [currentUsername]);
+
+    
 
     const handleDeleteUser = useCallback(async ({ user, authPassword = '' }) => {
         const username = String(user?.name || '').trim();
@@ -642,6 +909,28 @@ export function useUserManagement() {
             setSubmitting(false);
         }
     }, [loadAllUsers]);
+
+    const canDeleteUser = useCallback((user) => {
+        const username = String(user?.name || '').trim();
+        if (!username || username === '-') {
+            return false;
+        }
+
+        const owner = detectOwnerFromPayload(user?.raw || {});
+        const normalizedOwner = normalizeSearch(owner);
+        const normalizedCurrent = normalizeSearch(currentUsername);
+        if (!normalizedCurrent) {
+            return false;
+        }
+
+        const normalizedUser = normalizeSearch(username);
+        const protectedUsers = new Set(['admin', 'administrator', 'onvif', 'evosecure']);
+        const isProtectedTarget = protectedUsers.has(normalizedUser);
+        const isOwnerMatch = Boolean(normalizedOwner) && normalizedOwner === normalizedCurrent;
+        const canFallbackDelete = !normalizedOwner && !isProtectedTarget;
+
+        return isOwnerMatch || canFallbackDelete;
+    }, [currentUsername]);
 
     const canDeleteGroup = useCallback((group) => {
         const groupName = String(group?.groupName || '').trim().toLowerCase();
@@ -816,6 +1105,7 @@ export function useUserManagement() {
         isEditOpen,
         isGroupAuthOpen,
         isAddGroupOpen,
+        isAddUserAuthOpen,
         formData,
         setFormData,
         groupFormData,
@@ -823,6 +1113,9 @@ export function useUserManagement() {
         groupAuthPassword,
         setGroupAuthPassword,
         groupAuthMessage,
+            addUserAuthPassword,
+            setAddUserAuthPassword,
+            addUserAuthMessage,
         groupEditorTab,
         setGroupEditorTab,
         groupPermissionChannels,
@@ -850,9 +1143,12 @@ export function useUserManagement() {
         filteredUsers,
         loadAllUsers,
         openAddModal,
+        openAddUserAuthModal,
         openAddGroupAuthModal,
         openEditModal,
         closeAddModal,
+        closeAddUserAuthModal,
+        confirmAddUserAuth,
         closeEditModal,
         closeGroupAuthModal,
         closeAddGroupModal,
@@ -867,7 +1163,11 @@ export function useUserManagement() {
         handleAddUser,
         handleAddGroup,
         handleModifyUser,
+        handleModifyUserDescription,
+        handleModifyOwnPassword,
+        verifyActiveUserPassword,
         handleDeleteUser,
+        canDeleteUser,
         canDeleteGroup,
         handleDeleteGroup,
         handleModifyGroupAttribute,
@@ -876,5 +1176,80 @@ export function useUserManagement() {
         isUserManagementSupported,
         deleteNotification,
         setDeleteNotification,
+        addEditNotification,
+        setAddEditNotification,
+
+        // UI State - Password Visibility
+        showDeletePassword,
+        setShowDeletePassword,
+        showGroupPassword,
+        setShowGroupPassword,
+        showUserPwdAuthPassword,
+        setShowUserPwdAuthPassword,
+        showUserPwdManagerPassword,
+        setShowUserPwdManagerPassword,
+        showUserPwdNewValue,
+        setShowUserPwdNewValue,
+        showUserPwdOldValue,
+        setShowUserPwdOldValue,
+        showUserPwdConfirmValue,
+        setShowUserPwdConfirmValue,
+        showAddUserAuthPassword,
+        setShowAddUserAuthPassword,
+        showGroupAttrAuthPassword,
+        setShowGroupAttrAuthPassword,
+
+        // UI State - Modal Control
+        isUserPwdManagerOpen,
+        setIsUserPwdManagerOpen,
+        isUserPwdAuthOpen,
+        setIsUserPwdAuthOpen,
+        isGroupAttrAuthOpen,
+        setIsGroupAttrAuthOpen,
+
+        // UI State - Form Inputs
+        userPwdAuthPassword,
+        setUserPwdAuthPassword,
+        userPwdManagerPassword,
+        setUserPwdManagerPassword,
+        userPwdNewValue,
+        setUserPwdNewValue,
+        userPwdOldValue,
+        setUserPwdOldValue,
+        userPwdConfirmValue,
+        setUserPwdConfirmValue,
+        userDescriptionDraft,
+        setUserDescriptionDraft,
+        userPwdAuthMode,
+        setUserPwdAuthMode,
+        pendingUserDescriptionApply,
+        setPendingUserDescriptionApply,
+        editAuthPassword,
+        setEditAuthPassword,
+        addUserConfirmPassword,
+        setAddUserConfirmPassword,
+        groupAttrName,
+        setGroupAttrName,
+        groupAttrMemo,
+        setGroupAttrMemo,
+        groupAttrAuthPassword,
+        setGroupAttrAuthPassword,
+
+        // UI State - Messages & Errors
+        userPwdModalMessage,
+        setUserPwdModalMessage,
+        userPwdOldError,
+        setUserPwdOldError,
+
+        // UI State - Display & Pagination
+        showAllChannels,
+        setShowAllChannels,
+        channelPage,
+        setChannelPage,
+
+        // Refs
+        deletePasswordFormRef,
+        groupPasswordFormRef,
+        groupAttrPasswordFormRef,
     };
 }

@@ -1,5 +1,8 @@
 import ApiClient from '../../lib/api';
 import { authStore } from '../../stores/authSlice';
+import { loginWithDigest } from '../auth/auth.service';
+import { buildDigestAuthorizationHeader, formatNc, createCnonce } from '../../lib/auth-helper';
+import { getRequestUri } from '../../lib/api-config';
 
 function toTextPayload(rawData) {
     if (typeof rawData === 'string') {
@@ -738,8 +741,8 @@ export const userService = {
 
     addUser: async ({ payload = {}, extraQuery = '' }) => {
         return callUserManagerWithParamFallback([
-            buildAddUserParams(payload, extraQuery, 'nested', { profile: 'minimal' }),
-            buildAddUserParams(payload, extraQuery, 'flat', { profile: 'minimal', authorityMode: 'default' }),
+            buildAddUserParams(payload, extraQuery, 'nested', { profile: 'full' }),
+            buildAddUserParams(payload, extraQuery, 'flat', { profile: 'full', authorityMode: 'default' }),
         ]);
     },
 
@@ -767,27 +770,60 @@ export const userService = {
         const state = authStore.getState();
         const managerName = String(state?.auth?.username || '').trim();
         const password = String(authPassword || '').trim();
+        const baseParams = {
+            action: 'deleteUser',
+            name,
+            ...parseQueryStringInput(extraQuery),
+        };
 
-        const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
-            params: {
-                action: 'deleteUser',
-                name,
+        // Follow documentation first: only action + name.
+        const variants = [
+            baseParams,
+            {
+                ...baseParams,
                 ...(managerName ? { managerName } : {}),
                 ...(password ? { password, managerPwd: password } : {}),
-                ...parseQueryStringInput(extraQuery),
             },
-        });
+        ];
 
-        return response?.data;
+        let lastError;
+        for (let i = 0; i < variants.length; i += 1) {
+            try {
+                const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
+                    params: variants[i],
+                });
+                return response?.data;
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        throw lastError || new Error('Gagal menghapus user.');
     },
 
     modifyPassword: async ({ name, pwd, pwdOld, extraQuery = '' }) => {
+        const normalizedName = String(name || '').trim();
+        const normalizedOldPassword = String(pwdOld || '').trim();
+        if (!normalizedName) {
+            throw new Error('Nama user wajib diisi.');
+        }
+
+        if (!normalizedOldPassword) {
+            throw new Error('Old password wajib diisi.');
+        }
+
+        try {
+            await loginWithDigest(normalizedName, normalizedOldPassword);
+        } catch {
+            throw new Error('Old password salah.');
+        }
+
         const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
             params: {
                 action: 'modifyPassword',
-                name,
+                name: normalizedName,
                 pwd,
-                pwdOld,
+                pwdOld: normalizedOldPassword,
                 ...parseQueryStringInput(extraQuery),
             },
         });
@@ -795,19 +831,4 @@ export const userService = {
         return response?.data;
     },
 
-    modifyPasswordByManager: async ({ userName, pwd, managerName, managerPwd, accountType = 0, extraQuery = '' }) => {
-        const response = await ApiClient.get('/cgi-bin/userManager.cgi', {
-            params: {
-                action: 'modifyPasswordByManager',
-                userName,
-                pwd,
-                managerName,
-                managerPwd,
-                accountType,
-                ...parseQueryStringInput(extraQuery),
-            },
-        });
-
-        return response?.data;
-    },
 };
