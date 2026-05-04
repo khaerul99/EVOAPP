@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { setupInterceptors } from './api-interceptor'
 
-const CAMERA_URL = import.meta.env.DEV ? '/' : '/api/camera'
+const CAMERA_URL = import.meta.env.DEV ? '/' : '/api/camera/'
 
 function serializeQueryParams(params) {
     const parts = [];
