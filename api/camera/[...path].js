@@ -19,7 +19,6 @@ function buildTargetUrl(pathSegments, queryObject) {
 }
 
 function sanitizeRequestHeaders(headers) {
-    // Forward only API-relevant headers to avoid camera UI fallback responses.
     const source = headers || {}
     const nextHeaders = {}
 
@@ -27,7 +26,21 @@ function sanitizeRequestHeaders(headers) {
         'authorization',
         'content-type',
         'accept',
+        'accept-language',
+        'accept-encoding',
+        'cache-control',
+        'pragma',
+        'origin',
+        'referer',
+        'user-agent',
         'x-requested-with',
+        'sec-ch-ua',
+        'sec-ch-ua-mobile',
+        'sec-ch-ua-platform',
+        'sec-fetch-site',
+        'sec-fetch-mode',
+        'sec-fetch-dest',
+        'dnt',
     ]
 
     allowList.forEach((key) => {
