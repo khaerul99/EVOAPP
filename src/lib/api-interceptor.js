@@ -34,6 +34,7 @@ function routeRequestThroughProxy(config) {
 
     return {
         ...config,
+        baseURL: '/',
         url: '/api/proxy',
         params: nextParams,
     }
@@ -113,6 +114,7 @@ export function setupInterceptors(ApiClient) {
                 },
                 refreshedState,
             )
+            const routedRetriedConfig = routeRequestThroughProxy(retriedConfig)
 
             if (!refreshedState?.auth?.digestSecret && refreshedState?.runtimeRtspPassword) {
                 const computedSecret = computeDigestSecret(
@@ -128,7 +130,7 @@ export function setupInterceptors(ApiClient) {
                 })
             }
 
-            return ApiClient.request(retriedConfig)
+            return ApiClient.request(routedRetriedConfig)
         },
     )
 }
