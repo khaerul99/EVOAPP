@@ -120,6 +120,8 @@ async function sendPlainRequest({ endpointPath, method, bodyData, signal }) {
             Pragma: 'no-cache',
         },
         validateStatus: () => true,
+    }).finally(() => {
+            console.log('[DEBUG] sendPlainRequest - endpointPath:', endpointPath, 'baseURL:', authHttp.defaults.baseURL)
     })
 }
 
