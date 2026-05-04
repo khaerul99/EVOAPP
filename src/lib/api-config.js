@@ -1,10 +1,21 @@
 export const AUTH_PROBE_PATH = '/cgi-bin/magicBox.cgi?action=getLanguageCaps'
 export const AUTH_METHOD =  'GET'
 
-const digestPathPrefixes = String(import.meta.env.VITE_DIGEST_PATH_PREFIXES || '/cgi-bin/')
+const defaultDigestPathPrefixes = [
+    '/cgi-bin/',
+    '/api/camera/_proxy',
+    '/_proxy',
+]
+
+const envDigestPathPrefixes = String(import.meta.env.VITE_DIGEST_PATH_PREFIXES || '')
     .split(',')
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
+
+const digestPathPrefixes = Array.from(new Set([
+    ...defaultDigestPathPrefixes,
+    ...envDigestPathPrefixes,
+]))
 
 export function getRequestUri(url) {
     try {
