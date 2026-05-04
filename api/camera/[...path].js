@@ -18,6 +18,27 @@ function buildTargetUrl(pathSegments, queryObject) {
     return targetUrl.toString()
 }
 
+function buildTargetUrlFromRawRequest(req, pathSegments) {
+    const safeBase = CAMERA_TARGET.endsWith('/') ? CAMERA_TARGET : `${CAMERA_TARGET}/`
+    const targetUrl = new URL(pathSegments.join('/'), safeBase)
+
+    let parsedRequestUrl
+    try {
+        parsedRequestUrl = new URL(req.url || '/', 'http://localhost')
+    } catch {
+        return buildTargetUrl(pathSegments, req.query)
+    }
+
+    parsedRequestUrl.searchParams.forEach((value, key) => {
+        if (key === 'path' || key === '__path') {
+            return
+        }
+        targetUrl.searchParams.append(key, value)
+    })
+
+    return targetUrl.toString()
+}
+
 function sanitizeRequestHeaders(headers) {
     // Forward only API-relevant headers to avoid camera UI fallback responses.
     const source = headers || {}
@@ -83,7 +104,7 @@ export default async function handler(req, res) {
             ? req.query.path
             : [req.query.path].filter(Boolean))
 
-    const targetUrl = buildTargetUrl(pathSegments, req.query)
+    const targetUrl = buildTargetUrlFromRawRequest(req, pathSegments)
     const body = getRequestBody(req)
 
     try {
