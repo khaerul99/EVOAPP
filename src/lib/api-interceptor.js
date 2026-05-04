@@ -8,6 +8,37 @@ import {
 } from './digest-auth'
 import { authStore } from '../stores/authSlice'
 
+function routeRequestThroughProxy(config) {
+    if (!import.meta.env.PROD) {
+        return config
+    }
+
+    const originalUrl = String(config?.url || '').trim()
+    if (!originalUrl || originalUrl.startsWith('/api/auth-probe') || originalUrl.startsWith('/api/proxy')) {
+        return config
+    }
+
+    const parsed = new URL(originalUrl, window.location.origin)
+    const requestPath = parsed.pathname.replace(/^\/+/, '')
+    const nextParams = {
+        ...(config.params || {}),
+        __path: requestPath,
+    }
+
+    parsed.searchParams.forEach((value, key) => {
+        if (nextParams[key] !== undefined) {
+            return
+        }
+        nextParams[key] = value
+    })
+
+    return {
+        ...config,
+        url: '/api/proxy',
+        params: nextParams,
+    }
+}
+
 function signRequestWithDigest(config, authState) {
     const result = createDigestSignedConfig(config, authState)
     if (result.usedDigest) {
@@ -23,7 +54,8 @@ export function setupInterceptors(ApiClient) {
         }
 
         const authState = authStore.getState()
-        return signRequestWithDigest(config, authState)
+        const signed = signRequestWithDigest(config, authState)
+        return routeRequestThroughProxy(signed)
     })
 
     ApiClient.interceptors.response.use(
@@ -48,7 +80,7 @@ export function setupInterceptors(ApiClient) {
                 throw error
             }
 
-            if (shouldSkipDigestRetry(originalConfig.url || '')) {
+            if (shouldSkipDigestRetry(originalConfig.url || '', originalConfig.params || {})) {
                 throw error
             }
 

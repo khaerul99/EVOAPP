@@ -137,7 +137,8 @@ function resolveDigestSecret(authState, challenge) {
 }
 
 export function createDigestSignedConfig(config, authState) {
-    if (!shouldUseDigestForUrl(config?.url || '/')) {
+    const digestUri = buildDigestUri(config?.url || '/', config?.params)
+    if (!shouldUseDigestForUrl(digestUri)) {
         return {
             config,
             usedDigest: false,
@@ -159,7 +160,7 @@ export function createDigestSignedConfig(config, authState) {
 
     const authorization = buildDigestAuthorizationHeader({
         method: config.method || 'GET',
-        uri: buildDigestUri(config.url || '/', config.params),
+        uri: digestUri,
         username: authState.auth.username,
         digestSecret: digestSecret || undefined,
         password: authState.auth?.digestSecret ? undefined : (authState.runtimeRtspPassword || ''),
@@ -182,11 +183,12 @@ export function createDigestSignedConfig(config, authState) {
     }
 }
 
-export function shouldSkipDigestRetry(url = '') {
-    if (!shouldUseDigestForUrl(url)) {
+export function shouldSkipDigestRetry(url = '', params = {}) {
+    const digestUri = buildDigestUri(url || '/', params || {})
+    if (!shouldUseDigestForUrl(digestUri)) {
         return true
     }
 
-    const normalizedUrl = String(url || '').toLowerCase()
+    const normalizedUrl = String(digestUri || '').toLowerCase()
     return STREAM_URL_HINTS.some((token) => normalizedUrl.includes(token))
 }
