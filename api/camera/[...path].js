@@ -108,9 +108,9 @@ export default async function handler(req, res) {
         : [req.query.path].filter(Boolean)
 
     if (pathSegments.length === 0) {
-        res.status(200).json({
-            ok: true,
-            message: 'Camera proxy is running',
+        res.status(400).json({
+            ok: false,
+            message: 'Path proxy kosong. Gunakan /api/camera/<endpoint>.',
             cameraTargetRaw: CAMERA_TARGET,
             cameraOriginResolved: getCameraBaseOrigin(),
         })
