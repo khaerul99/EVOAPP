@@ -66,6 +66,33 @@ function stringifyRequestBody(data) {
 }
 
 function buildDigestUri(url, params) {
+    if (params && typeof params === 'object' && params.__path) {
+        const rawPath = String(params.__path || '').trim().replace(/^\/+/, '')
+        const digestPath = rawPath ? `/${rawPath}` : '/'
+
+        const searchParams = new URLSearchParams()
+        Object.entries(params).forEach(([key, value]) => {
+            if (key === '__path' || value === undefined || value === null) {
+                return
+            }
+
+            if (Array.isArray(value)) {
+                value.forEach((entry) => {
+                    if (entry === undefined || entry === null) {
+                        return
+                    }
+                    searchParams.append(key, String(entry))
+                })
+                return
+            }
+
+            searchParams.append(key, String(value))
+        })
+
+        const nextQuery = searchParams.toString()
+        return nextQuery ? `${digestPath}?${nextQuery}` : digestPath
+    }
+
     const baseUri = getRequestUri(url || '/')
     if (!params || typeof params !== 'object') {
         return baseUri
