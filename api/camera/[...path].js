@@ -90,6 +90,16 @@ export default async function handler(req, res) {
         ? req.query.path
         : [req.query.path].filter(Boolean)
 
+    if (pathSegments.length === 0) {
+        res.status(200).json({
+            ok: true,
+            message: 'Camera proxy is running',
+            cameraTargetRaw: CAMERA_TARGET,
+            cameraOriginResolved: getCameraBaseOrigin(),
+        })
+        return
+    }
+
     const targetUrl = buildTargetUrl(pathSegments, req.query)
     const body = getRequestBody(req)
     res.setHeader('x-proxy-target', targetUrl)
