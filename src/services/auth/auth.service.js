@@ -10,7 +10,7 @@ import {
 } from '../../lib/auth-helper'
 
 const authHttp = axios.create({
-    baseURL: ApiClient.defaults.baseURL,
+    baseURL: '/',
     timeout: ApiClient.defaults.timeout || 10000,
 })
 
