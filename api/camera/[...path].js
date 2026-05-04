@@ -26,21 +26,10 @@ function sanitizeRequestHeaders(headers) {
         'authorization',
         'content-type',
         'accept',
-        'accept-language',
-        'accept-encoding',
         'cache-control',
         'pragma',
-        'origin',
-        'referer',
         'user-agent',
         'x-requested-with',
-        'sec-ch-ua',
-        'sec-ch-ua-mobile',
-        'sec-ch-ua-platform',
-        'sec-fetch-site',
-        'sec-fetch-mode',
-        'sec-fetch-dest',
-        'dnt',
     ]
 
     allowList.forEach((key) => {
@@ -101,7 +90,16 @@ export default async function handler(req, res) {
             method: req.method,
             headers: sanitizeRequestHeaders(req.headers),
             body,
+            redirect: 'manual',
         })
+
+        if (upstream.status >= 300 && upstream.status < 400) {
+            const location = upstream.headers.get('location') || ''
+            res.setHeader(
+                'x-error-message',
+                `Upstream redirect ${upstream.status}${location ? ` to ${location}` : ''}. Digest challenge tidak diterima.`,
+            )
+        }
 
         upstream.headers.forEach((value, key) => {
             if (key.toLowerCase() === 'content-encoding') {
