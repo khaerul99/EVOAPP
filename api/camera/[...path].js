@@ -5,7 +5,7 @@ function buildTargetUrl(pathSegments, queryObject) {
     const targetUrl = new URL(pathSegments.join('/'), safeBase)
 
     Object.entries(queryObject || {}).forEach(([key, value]) => {
-        if (key === 'path' || value === undefined) {
+        if (key === 'path' || key === '__path' || value === undefined) {
             return
         }
         if (Array.isArray(value)) {
@@ -76,9 +76,12 @@ export default async function handler(req, res) {
         return
     }
 
-    const pathSegments = Array.isArray(req.query.path)
-        ? req.query.path
-        : [req.query.path].filter(Boolean)
+    const encodedPath = String(req.query.__path || '').trim()
+    const pathSegments = encodedPath
+        ? encodedPath.split('/').filter(Boolean)
+        : (Array.isArray(req.query.path)
+            ? req.query.path
+            : [req.query.path].filter(Boolean))
 
     const targetUrl = buildTargetUrl(pathSegments, req.query)
     const body = getRequestBody(req)
