@@ -1,8 +1,16 @@
 const CAMERA_TARGET = process.env.CAMERA_TARGET || 'http://103.194.172.70:8080'
 
+function getCameraBaseOrigin() {
+    try {
+        const parsed = new URL(CAMERA_TARGET)
+        return `${parsed.protocol}//${parsed.host}/`
+    } catch {
+        return 'http://103.194.172.70:8080/'
+    }
+}
+
 function buildTargetUrl(pathSegments, queryObject) {
-    const safeBase = CAMERA_TARGET.endsWith('/') ? CAMERA_TARGET : `${CAMERA_TARGET}/`
-    const targetUrl = new URL(pathSegments.join('/'), safeBase)
+    const targetUrl = new URL(pathSegments.join('/'), getCameraBaseOrigin())
 
     Object.entries(queryObject || {}).forEach(([key, value]) => {
         if (key === 'path' || value === undefined) {
@@ -40,7 +48,7 @@ function sanitizeRequestHeaders(headers) {
     })
 
     if (!nextHeaders.accept) {
-        nextHeaders.accept = '*/*'
+        nextHeaders.accept = 'text/plain, application/json, */*'
     }
 
     return nextHeaders
@@ -84,6 +92,7 @@ export default async function handler(req, res) {
 
     const targetUrl = buildTargetUrl(pathSegments, req.query)
     const body = getRequestBody(req)
+    res.setHeader('x-proxy-target', targetUrl)
 
     try {
         const upstream = await fetch(targetUrl, {
