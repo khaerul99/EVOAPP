@@ -8,8 +8,6 @@ import {
 } from './digest-auth'
 import { authStore } from '../stores/authSlice'
 
-let digestDispatchQueue = Promise.resolve()
-
 function routeRequestThroughProxy(config) {
     if (!import.meta.env.PROD) {
         return config
@@ -36,7 +34,6 @@ function routeRequestThroughProxy(config) {
 
     return {
         ...config,
-        baseURL: '/',
         url: '/api/proxy',
         params: nextParams,
     }
@@ -47,60 +44,25 @@ function signRequestWithDigest(config, authState) {
     if (result.usedDigest) {
         authStore.actions.updateNc(result.nextNc)
     }
-    return result
-}
-
-async function enqueueDigestDispatchIfNeeded(config) {
-    if (!import.meta.env.PROD) {
-        return config
-    }
-
-    const authorization = String(config?.headers?.Authorization || '')
-    if (!authorization.toLowerCase().startsWith('digest ')) {
-        return config
-    }
-
-    let release = null
-    const waitTurn = digestDispatchQueue
-    digestDispatchQueue = new Promise((resolve) => {
-        release = resolve
-    })
-
-    await waitTurn
-    return {
-        ...config,
-        __digestQueueRelease: release,
-    }
-}
-
-function releaseDigestDispatch(config) {
-    const release = config?.__digestQueueRelease
-    if (typeof release === 'function') {
-        release()
-    }
+    return result.config
 }
 
 export function setupInterceptors(ApiClient) {
-    ApiClient.interceptors.request.use(async (config) => {
+    ApiClient.interceptors.request.use((config) => {
         if (config?.__skipDigestSign) {
             return config
         }
 
         const authState = authStore.getState()
-        const signedResult = signRequestWithDigest(config, authState)
-        const routed = routeRequestThroughProxy(signedResult.config)
-        return enqueueDigestDispatchIfNeeded(routed)
+        const signed = signRequestWithDigest(config, authState)
+        return routeRequestThroughProxy(signed)
     })
 
     ApiClient.interceptors.response.use(
-        (response) => {
-            releaseDigestDispatch(response?.config || {})
-            return response
-        },
+        (response) => response,
         async (error) => {
             const response = error?.response
             const originalConfig = error?.config || {}
-            releaseDigestDispatch(originalConfig)
 
             if (!response) {
                 throw error
