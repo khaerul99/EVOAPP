@@ -81,6 +81,15 @@ export default defineConfig(({ mode }) => {
           secure: false,
           rewrite: (path) => path.replace(/^\/go2rtc/, ''),
         },
+        '/api/auth-probe': {
+          target: cameraTarget,
+          changeOrigin: true,
+          secure: false,
+          agent: cameraAgent,
+          insecureHTTPParser: true,
+          rewrite: () => '/cgi-bin/magicBox.cgi',
+          configure: attachDigestHeaderRewrite,
+        },
       },
     },
     preview: {
