@@ -10,6 +10,23 @@ function getCameraBaseOrigin() {
 }
 
 function buildTargetUrl(pathSegments, queryObject) {
+    const isAuthProbeAlias = pathSegments.length === 1 && String(pathSegments[0] || '').toLowerCase() === 'auth-probe'
+    if (isAuthProbeAlias) {
+        const targetUrl = new URL('cgi-bin/magicBox.cgi', getCameraBaseOrigin())
+        Object.entries(queryObject || {}).forEach(([key, value]) => {
+            if (key === 'path' || key === 'action' || value === undefined) {
+                return
+            }
+            if (Array.isArray(value)) {
+                value.forEach((entry) => targetUrl.searchParams.append(key, String(entry)))
+                return
+            }
+            targetUrl.searchParams.append(key, String(value))
+        })
+        targetUrl.searchParams.set('action', 'getLanguageCaps')
+        return targetUrl.toString()
+    }
+
     const targetUrl = new URL(pathSegments.join('/'), getCameraBaseOrigin())
 
     Object.entries(queryObject || {}).forEach(([key, value]) => {

@@ -1,6 +1,6 @@
 import axios from 'axios'
 import ApiClient from '../../lib/api'
-import { AUTH_METHOD, AUTH_PROBE_PATH, getRequestUri } from '../../lib/api-config'
+import { AUTH_METHOD, AUTH_PROBE_DIGEST_URI, AUTH_PROBE_PATH, getRequestUri } from '../../lib/api-config'
 import {
     buildDigestAuthorizationHeader,
     computeDigestSecret,
@@ -74,9 +74,13 @@ function extractBackendError(response) {
     }
 
     if (typeof data === 'object') {
+        const nestedError = data.error && typeof data.error === 'object'
+            ? (data.error.message || data.error.code || data.error.id)
+            : null
         const candidates = [
             data.message,
             data.error,
+            nestedError,
             data.msg,
             data.detail,
             data.description,
@@ -125,10 +129,19 @@ async function sendPlainRequest({ endpointPath, method, bodyData, signal }) {
     })
 }
 
-async function sendDigestRequest({ endpointPath, method, bodyData, username, password, challenge, signal }) {
+async function sendDigestRequest({
+    endpointPath,
+    digestUriOverride,
+    method,
+    bodyData,
+    username,
+    password,
+    challenge,
+    signal,
+}) {
     const authorization = buildDigestAuthorizationHeader({
         method,
-        uri: getRequestUri(endpointPath),
+        uri: digestUriOverride || getRequestUri(endpointPath),
         username,
         password,
         body: bodyData ? JSON.stringify(bodyData) : '',
@@ -152,7 +165,7 @@ async function sendDigestRequest({ endpointPath, method, bodyData, username, pas
     })
 }
 
-async function executeDigestAttempt({ endpointPath, method, username, password, payload, signal }) {
+async function executeDigestAttempt({ endpointPath, digestUriOverride, method, username, password, payload, signal }) {
     const bodyData = method === 'POST'
         ? (payload || { username, userName: username, password })
         : undefined
@@ -194,6 +207,7 @@ async function executeDigestAttempt({ endpointPath, method, username, password, 
     for (let round = 0; round < 1; round += 1) {
         const digestResponse = await sendDigestRequest({
             endpointPath,
+            digestUriOverride,
             method,
             bodyData,
             username,
@@ -268,6 +282,7 @@ export async function loginWithDigest(username, password) {
             const endpointPath = withCacheBust(AUTH_PROBE_PATH)
             const result = await executeDigestAttempt({
                 endpointPath,
+                digestUriOverride: AUTH_PROBE_DIGEST_URI,
                 method: AUTH_METHOD,
                 payload: { username, userName: username, password },
                 username,

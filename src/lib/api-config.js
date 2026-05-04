@@ -1,4 +1,5 @@
-export const AUTH_PROBE_PATH = 'cgi-bin/magicBox.cgi?action=getLanguageCaps'
+export const AUTH_PROBE_PATH = 'auth-probe'
+export const AUTH_PROBE_DIGEST_URI = '/cgi-bin/magicBox.cgi?action=getLanguageCaps'
 export const AUTH_METHOD =  'GET'
 
 const digestPathPrefixes = '/cgi-bin/'
