@@ -8,7 +8,6 @@ import {
 } from './auth-helper'
 
 const STREAM_URL_HINTS = ['.m3u8', 'playlist', 'manifest']
-const nonceCounters = new Map()
 
 export function getHeaderCaseInsensitive(headers = {}, key = '') {
     if (!headers || !key) {
@@ -137,16 +136,6 @@ function resolveDigestSecret(authState, challenge) {
     )
 }
 
-function allocateNextNc(authState) {
-    const nonceKey = String(authState?.challenge?.nonce || '')
-    const stateNc = Number(authState?.nc || 0)
-    const cachedNc = Number(nonceCounters.get(nonceKey) || 0)
-    const base = Math.max(stateNc, cachedNc)
-    const nextNc = base + 1
-    nonceCounters.set(nonceKey, nextNc)
-    return nextNc
-}
-
 export function createDigestSignedConfig(config, authState) {
     const digestUri = buildDigestUri(config?.url || '/', config?.params)
     if (!shouldUseDigestForUrl(digestUri)) {
@@ -165,7 +154,7 @@ export function createDigestSignedConfig(config, authState) {
         }
     }
 
-    const nextNc = allocateNextNc(authState)
+    const nextNc = Number(authState?.nc || 0) + 1
     const challenge = authState.challenge
     const digestSecret = resolveDigestSecret(authState, challenge)
 
