@@ -16,6 +16,39 @@ const authHttp = axios.create({
 
 let activeLoginController = null
 
+function mergeSearchParams(searchParams) {
+    const merged = {}
+    searchParams.forEach((value, key) => {
+        if (Object.prototype.hasOwnProperty.call(merged, key)) {
+            const current = merged[key]
+            merged[key] = Array.isArray(current) ? [...current, value] : [current, value]
+            return
+        }
+        merged[key] = value
+    })
+    return merged
+}
+
+function buildProxyRequestTarget(endpointPath) {
+    if (import.meta.env.DEV) {
+        return {
+            url: endpointPath,
+            params: undefined,
+        }
+    }
+
+    const parsed = new URL(String(endpointPath || '/'), 'http://localhost')
+    const normalizedPath = parsed.pathname.replace(/^\/+/, '')
+
+    return {
+        url: '/_proxy',
+        params: {
+            __path: normalizedPath,
+            ...mergeSearchParams(parsed.searchParams),
+        },
+    }
+}
+
 function getHeaderCaseInsensitive(headers, key) {
     if (!headers) {
         return null
@@ -109,10 +142,12 @@ function withCacheBust(endpointPath) {
 }
 
 async function sendPlainRequest({ endpointPath, method, bodyData, signal }) {
+    const target = buildProxyRequestTarget(endpointPath)
     return authHttp.request({
-        url: endpointPath,
+        url: target.url,
         method,
         data: bodyData,
+        params: target.params,
         signal,
         headers: {
             'Content-Type': 'application/json',
@@ -124,6 +159,7 @@ async function sendPlainRequest({ endpointPath, method, bodyData, signal }) {
 }
 
 async function sendDigestRequest({ endpointPath, method, bodyData, username, password, challenge, signal }) {
+    const target = buildProxyRequestTarget(endpointPath)
     const authorization = buildDigestAuthorizationHeader({
         method,
         uri: getRequestUri(endpointPath),
@@ -136,9 +172,10 @@ async function sendDigestRequest({ endpointPath, method, bodyData, username, pas
     })
 
     return authHttp.request({
-        url: endpointPath,
+        url: target.url,
         method,
         data: bodyData,
+        params: target.params,
         signal,
         headers: {
             'Content-Type': 'application/json',
