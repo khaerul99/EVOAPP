@@ -34,6 +34,7 @@ function routeRequestThroughProxy(config) {
 
     return {
         ...config,
+        baseURL: '/',
         url: '/api/proxy',
         params: nextParams,
     }
