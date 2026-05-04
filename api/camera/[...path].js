@@ -5,7 +5,7 @@ function buildTargetUrl(pathSegments, queryObject) {
     const targetUrl = new URL(pathSegments.join('/'), safeBase)
 
     Object.entries(queryObject || {}).forEach(([key, value]) => {
-        if (key === 'path' || key === '__path' || value === undefined) {
+        if (key === 'path' || value === undefined) {
             return
         }
         if (Array.isArray(value)) {
@@ -13,27 +13,6 @@ function buildTargetUrl(pathSegments, queryObject) {
             return
         }
         targetUrl.searchParams.append(key, String(value))
-    })
-
-    return targetUrl.toString()
-}
-
-function buildTargetUrlFromRawRequest(req, pathSegments) {
-    const safeBase = CAMERA_TARGET.endsWith('/') ? CAMERA_TARGET : `${CAMERA_TARGET}/`
-    const targetUrl = new URL(pathSegments.join('/'), safeBase)
-
-    let parsedRequestUrl
-    try {
-        parsedRequestUrl = new URL(req.url || '/', 'http://localhost')
-    } catch {
-        return buildTargetUrl(pathSegments, req.query)
-    }
-
-    parsedRequestUrl.searchParams.forEach((value, key) => {
-        if (key === 'path' || key === '__path') {
-            return
-        }
-        targetUrl.searchParams.append(key, value)
     })
 
     return targetUrl.toString()
@@ -97,14 +76,11 @@ export default async function handler(req, res) {
         return
     }
 
-    const encodedPath = String(req.query.__path || '').trim()
-    const pathSegments = encodedPath
-        ? encodedPath.split('/').filter(Boolean)
-        : (Array.isArray(req.query.path)
-            ? req.query.path
-            : [req.query.path].filter(Boolean))
+    const pathSegments = Array.isArray(req.query.path)
+        ? req.query.path
+        : [req.query.path].filter(Boolean)
 
-    const targetUrl = buildTargetUrlFromRawRequest(req, pathSegments)
+    const targetUrl = buildTargetUrl(pathSegments, req.query)
     const body = getRequestBody(req)
 
     try {

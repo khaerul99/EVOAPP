@@ -48,60 +48,6 @@ const ApiClient = axios.create({
     },
 })
 
-function mergeSearchParams(searchParams) {
-    const merged = {}
-    searchParams.forEach((value, key) => {
-        if (Object.prototype.hasOwnProperty.call(merged, key)) {
-            const current = merged[key]
-            merged[key] = Array.isArray(current) ? [...current, value] : [current, value]
-            return
-        }
-        merged[key] = value
-    })
-    return merged
-}
-
-function buildProxyTarget(urlValue) {
-    const rawUrl = String(urlValue || '').trim()
-    if (!rawUrl.startsWith('/')) {
-        return null
-    }
-
-    const parsed = new URL(rawUrl, 'http://localhost')
-    const normalizedPath = parsed.pathname.replace(/^\/+/, '')
-    if (!normalizedPath) {
-        return null
-    }
-
-    return {
-        url: '/_proxy',
-        params: {
-            __path: normalizedPath,
-            ...mergeSearchParams(parsed.searchParams),
-        },
-    }
-}
-
-ApiClient.interceptors.request.use((config) => {
-    if (import.meta.env.DEV || config?.__skipCameraProxyTransform) {
-        return config
-    }
-
-    const target = buildProxyTarget(config?.url)
-    if (!target) {
-        return config
-    }
-
-    return {
-        ...config,
-        url: target.url,
-        params: {
-            ...target.params,
-            ...(config.params || {}),
-        },
-    }
-})
-
 setupInterceptors(ApiClient)
 
 export default ApiClient
