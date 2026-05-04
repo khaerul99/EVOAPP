@@ -279,7 +279,7 @@ export async function loginWithDigest(username, password) {
         let lastError = 'Autentikasi gagal.'
 
         for (let attempt = 0; attempt < 1; attempt += 1) {
-            const endpointPath = withCacheBust(AUTH_PROBE_PATH)
+            const endpointPath = AUTH_PROBE_PATH
             const result = await executeDigestAttempt({
                 endpointPath,
                 digestUriOverride: AUTH_PROBE_DIGEST_URI,
