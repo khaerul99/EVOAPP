@@ -1,5 +1,5 @@
-export const AUTH_PROBE_PATH = '/cgi-bin/magicBox.cgi?action=getLanguageCaps'
-export const AUTH_METHOD =  'GET'
+export const AUTH_PROBE_PATH = '/cgi-bin/api/global/login'
+export const AUTH_METHOD =  'POST'
 
 const digestPathPrefixes = String(import.meta.env.VITE_DIGEST_PATH_PREFIXES || '/cgi-bin/')
     .split(',')
