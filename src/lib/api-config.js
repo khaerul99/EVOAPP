@@ -1,4 +1,6 @@
-export const AUTH_PROBE_PATH = '/api/auth-probe?action=getLanguageCaps'
+export const AUTH_PROBE_PATH = import.meta.env.PROD
+    ? '/api/auth-probe?action=getLanguageCaps'
+    : '/cgi-bin/magicBox.cgi?action=getLanguageCaps'
 export const AUTH_PROBE_DIGEST_URI = '/cgi-bin/magicBox.cgi?action=getLanguageCaps'
 export const AUTH_METHOD =  'GET'
 
