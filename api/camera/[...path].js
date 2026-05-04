@@ -19,19 +19,28 @@ function buildTargetUrl(pathSegments, queryObject) {
 }
 
 function sanitizeRequestHeaders(headers) {
-    const nextHeaders = { ...headers }
-    delete nextHeaders.host
-    delete nextHeaders.connection
-    delete nextHeaders['content-length']
-    delete nextHeaders['x-forwarded-for']
-    delete nextHeaders['x-forwarded-host']
-    delete nextHeaders['x-forwarded-port']
-    delete nextHeaders['x-forwarded-proto']
-    delete nextHeaders['if-none-match']
-    delete nextHeaders['if-modified-since']
-    delete nextHeaders.etag
-    delete nextHeaders['cache-control']
-    delete nextHeaders.pragma
+    // Forward only API-relevant headers to avoid camera UI fallback responses.
+    const source = headers || {}
+    const nextHeaders = {}
+
+    const allowList = [
+        'authorization',
+        'content-type',
+        'accept',
+        'x-requested-with',
+    ]
+
+    allowList.forEach((key) => {
+        const value = source[key] ?? source[key.toLowerCase()] ?? source[key.toUpperCase()]
+        if (value !== undefined && value !== null && value !== '') {
+            nextHeaders[key] = String(value)
+        }
+    })
+
+    if (!nextHeaders.accept) {
+        nextHeaders.accept = '*/*'
+    }
+
     return nextHeaders
 }
 
