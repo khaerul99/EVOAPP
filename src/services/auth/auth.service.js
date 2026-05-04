@@ -79,8 +79,8 @@ function extractBackendError(response) {
             : null
         const candidates = [
             data.message,
-            data.error,
             nestedError,
+            typeof data.error === 'string' ? data.error : null,
             data.msg,
             data.detail,
             data.description,
