@@ -3,7 +3,7 @@ import { addSecurityLog } from './security-log'
 
 export const SESSION_KEY = 'evosecure_session'
 export const REMEMBER_KEY = 'evosecure_remember_username'
-export const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000
+export const SESSION_MAX_AGE_MS = 1 * 60 * 60 * 1000
 export const SESSION_IDLE_MS = 30 * 60 * 1000 // 30 minutes
 export const LAST_LOGOUT_AT_KEY = 'evosecure_last_logout_at'
 export const LOGOUT_COOLDOWN_MS = 5000
