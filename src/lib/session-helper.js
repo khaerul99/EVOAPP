@@ -4,8 +4,14 @@ import { addSecurityLog } from './security-log'
 export const SESSION_KEY = 'evosecure_session'
 export const REMEMBER_KEY = 'evosecure_remember_username'
 export const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000
+export const SESSION_IDLE_MS = 30 * 60 * 1000 // 30 minutes
 export const LAST_LOGOUT_AT_KEY = 'evosecure_last_logout_at'
 export const LOGOUT_COOLDOWN_MS = 5000
+export const LAST_ACTIVITY_KEY = 'evosecure_last_activity'
+
+// Idle monitoring state
+let idleTimeout = null
+let lastActivityTime = Date.now()
 
 export function getSession() {
     try {
@@ -98,6 +104,7 @@ export function clearSession(options = {}) {
         sessionStorage.setItem(LAST_LOGOUT_AT_KEY, String(now))
     }
     authStore.actions.clearSession()
+    stopIdleMonitoring()
     if (!silent) {
         addSecurityLog({
             level: 'warning',
@@ -106,4 +113,75 @@ export function clearSession(options = {}) {
             username: currentSession?.username || '-',
         })
     }
+}
+
+export function isIdleExpired() {
+    const lastActivity = localStorage.getItem(LAST_ACTIVITY_KEY)
+    if (!lastActivity) {
+        return false
+    }
+
+    const lastActivityTime = Number(lastActivity)
+    if (!Number.isFinite(lastActivityTime)) {
+        return false
+    }
+
+    return (Date.now() - lastActivityTime) >= SESSION_IDLE_MS
+}
+
+export function updateLastActivity() {
+    lastActivityTime = Date.now()
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime))
+}
+
+export function resetIdleTimer() {
+    if (idleTimeout) {
+        clearTimeout(idleTimeout)
+    }
+    updateLastActivity()
+}
+
+export function startIdleMonitoring(onIdleExpired) {
+    // Remove previous listeners if any
+    stopIdleMonitoring()
+
+    const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click']
+    
+    const handleActivity = () => {
+        resetIdleTimer()
+    }
+
+    // Add event listeners
+    activityEvents.forEach(event => {
+        document.addEventListener(event, handleActivity, { passive: true })
+    })
+
+    // Set up idle check interval (check every 1 minute)
+    idleTimeout = setInterval(() => {
+        if (isIdleExpired()) {
+            stopIdleMonitoring()
+            if (onIdleExpired) {
+                onIdleExpired()
+            }
+        }
+    }, 60000) // Check every 1 minute
+
+    // Initialize last activity
+    updateLastActivity()
+}
+
+export function stopIdleMonitoring() {
+    if (idleTimeout) {
+        clearTimeout(idleTimeout)
+        idleTimeout = null
+    }
+
+    const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click']
+    const handleActivity = () => resetIdleTimer()
+    
+    activityEvents.forEach(event => {
+        document.removeEventListener(event, handleActivity)
+    })
+
+    localStorage.removeItem(LAST_ACTIVITY_KEY)
 }

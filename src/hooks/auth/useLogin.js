@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cancelLoginRequest, loginWithDigest } from '../../services/auth/auth.service'
 import { authStore } from '../../stores/authSlice'
-import { REMEMBER_KEY, clearSession, getRemainingLogoutCooldownMs, hasSession, saveSession } from '../../lib/session-helper'
+import { REMEMBER_KEY, clearSession, getRemainingLogoutCooldownMs, hasSession, saveSession, startIdleMonitoring } from '../../lib/session-helper'
 import { addSecurityLog, getSecurityLogs } from '../../lib/security-log'
 
 function sleep(milliseconds) {
@@ -120,6 +120,12 @@ export function useLogin() {
             } else {
                 localStorage.removeItem(REMEMBER_KEY)
             }
+
+            // Start idle monitoring after successful login
+            startIdleMonitoring(() => {
+                clearSession()
+                navigate('/login', { replace: true })
+            })
 
             setPassword('')
             addSecurityLog({
