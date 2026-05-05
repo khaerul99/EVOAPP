@@ -6,6 +6,7 @@ import {
     EyeOff,
 } from 'lucide-react';
 import { usePermissionManagement } from '../../hooks/user/usePermissionManagement';
+import { authStore } from '../../stores/authSlice';
 
 function PermissionCheckbox({ checked, label, onChange, disabled = false }) {
     return (
@@ -23,6 +24,7 @@ function PermissionCheckbox({ checked, label, onChange, disabled = false }) {
 }
 
 const PermissionManagement = ({ userName, groupName = "", authoritiesOverride = [] }) => {
+    const currentUsername = String(authStore.getState()?.auth?.username || '').trim();
     const {
         loading,
         error,
@@ -49,7 +51,26 @@ const PermissionManagement = ({ userName, groupName = "", authoritiesOverride = 
     const [showAllChannels, setShowAllChannels] = React.useState(false);
     const [channelPage, setChannelPage] = React.useState(1);
     const [channelsPerPage, setChannelsPerPage] = React.useState(20);
+    const [successNotification, setSuccessNotification] = React.useState(null);
     const isUserNode = Boolean(String(userName || '').trim());
+
+    React.useEffect(() => {
+        if (!saveSuccessMessage) {
+            setSuccessNotification(null);
+            return undefined;
+        }
+
+        setSuccessNotification({
+            title: 'Success',
+            message: saveSuccessMessage,
+        });
+
+        const timerId = window.setTimeout(() => {
+            setSuccessNotification(null);
+        }, 3500);
+
+        return () => window.clearTimeout(timerId);
+    }, [saveSuccessMessage]);
 
     const onApplyClick = () => {
         setAuthPassword('');
@@ -75,6 +96,8 @@ const PermissionManagement = ({ userName, groupName = "", authoritiesOverride = 
             setAuthMessage(String(applyError?.message || 'Gagal menyimpan permission.'));
         }
     };
+
+    const isAdminGroup = String(groupName || '').trim().toLowerCase() === 'admin';
 
     const allChannels = React.useMemo(() => {
         const normalized = Array.isArray(channels)
@@ -161,17 +184,14 @@ const PermissionManagement = ({ userName, groupName = "", authoritiesOverride = 
                     <p className="text-xs">{saveError}</p>
                 </div>
             )}
-            {saveSuccessMessage && (
-                <div className="p-3 text-xs font-semibold border rounded-md border-emerald-200 bg-emerald-50 text-emerald-700">
-                    {saveSuccessMessage}
-                </div>
-            )}
-        
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_1fr_1.75fr]">
                 {['config', 'operation', 'control'].map((sectionKey) => {
                     const section = PERMISSION_CATEGORIES[sectionKey];
-                    const sectionAllChecked = section.permissions.length > 0
-                        && section.permissions.every((permission) => Boolean(draftPermissionState[sectionKey]?.[permission]));
+                    const sectionPermissions = section.permissions.filter(
+                        (permission) => permission !== 'Account' || isAdminGroup,
+                    );
+                    const sectionAllChecked = sectionPermissions.length > 0
+                        && sectionPermissions.every((permission) => Boolean(draftPermissionState[sectionKey]?.[permission]));
 
                     return (
                         <div key={sectionKey} className="bg-white border border-navy/10">
@@ -183,7 +203,7 @@ const PermissionManagement = ({ userName, groupName = "", authoritiesOverride = 
                                     onChange={(checked) => toggleSectionPermissions(sectionKey, checked)}
                                     disabled={!canEdit}
                                 />
-                                {section.permissions.map((permission) => (
+                                {sectionPermissions.map((permission) => (
                                     <PermissionCheckbox
                                         key={permission}
                                         label={permission}
@@ -330,6 +350,14 @@ const PermissionManagement = ({ userName, groupName = "", authoritiesOverride = 
                             </div>
                         )}
                         <form onSubmit={onConfirmApply} className="space-y-4" autoComplete="off" noValidate>
+                            <input
+                                type="text"
+                                value={currentUsername}
+                                readOnly
+                                className="w-full px-4 py-3 text-xs font-bold border outline-none rounded-xl border-navy/15 bg-white text-navy/60"
+                                placeholder="username"
+                                autoComplete="off"
+                            />
                             <div className="relative">
                                 <input
                                     type={showPassword ? 'text' : 'password'}
@@ -367,6 +395,53 @@ const PermissionManagement = ({ userName, groupName = "", authoritiesOverride = 
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {successNotification && (
+                <div className="fixed z-50 max-w-sm duration-300 bottom-6 right-6 animate-in fade-in slide-in-from-bottom-4">
+                    <div className="p-4 border shadow-lg rounded-2xl border-emerald-200 bg-emerald-50">
+                        <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 mt-1">
+                                <svg
+                                    className="w-5 h-5 text-emerald-600"
+                                    fill="currentColor"
+                                    viewBox="0 0 20 20"
+                                >
+                                    <path
+                                        fillRule="evenodd"
+                                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                                        clipRule="evenodd"
+                                    />
+                                </svg>
+                            </div>
+                            <div className="flex-1">
+                                <h3 className="text-sm font-bold text-emerald-900">
+                                    {successNotification.title}
+                                </h3>
+                                <p className="mt-1 text-xs font-semibold text-emerald-700">
+                                    {successNotification.message}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setSuccessNotification(null)}
+                                className="flex-shrink-0 transition-colors text-emerald-400 hover:text-emerald-600"
+                            >
+                                <svg
+                                    className="w-5 h-5"
+                                    fill="currentColor"
+                                    viewBox="0 0 20 20"
+                                >
+                                    <path
+                                        fillRule="evenodd"
+                                        d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                        clipRule="evenodd"
+                                    />
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
