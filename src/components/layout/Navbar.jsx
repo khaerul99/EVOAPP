@@ -17,6 +17,8 @@ import {
 import { useClickOutside } from "../../hooks/common/useClickOutside";
 import { getSession } from "../../lib/session-helper";
 import { logout } from "../../stores/useStore";
+import { useAuthStore } from "../../stores/authSlice";
+import { hasAdminAccess, hasAnyAuthority, hasAuthority } from "../../lib/role-helper";
 
 const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
   const [currentTime, setCurrentTime] = useState(
@@ -68,6 +70,38 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
 
   const pageTitle =
     location.pathname.split("/").pop()?.replace("-", " ") || "Dashboard";
+
+  // Get authorities from Zustand store using selector
+  const auth = useAuthStore((state) => state.auth);
+  const authorities = useAuthStore((state) => state.authorities || []);
+  const authState = React.useMemo(() => ({ auth, authorities }), [auth, authorities]);
+  const canOpenCameraSetting = hasAdminAccess(authState)
+    || hasAnyAuthority(authState, ["AuthSysCfg", "AuthNetCfg", "AuthRmtDevice"]);
+  const canOpenSecurityLogs = hasAdminAccess(authState)
+    || hasAuthority(authState, "AuthSecurity");
+
+  const roleLabel = React.useMemo(() => {
+    try {
+      const normalized = new Set(
+        (Array.isArray(authorities) ? authorities : [])
+          .map((s) => String(s || "").trim().toLowerCase())
+      );
+      if (normalized.size === 0) return "User";
+      if (
+        normalized.has("admin")
+        || normalized.has("administrator")
+        || Array.from(normalized).some((v) => v.includes("admin"))
+      ) {
+        return "Admin";
+      }
+      if (normalized.has("operator") || normalized.has("operatoruser")) {
+        return "Operator";
+      }
+      return "User";
+    } catch {
+      return "User";
+    }
+  }, [authorities]);
 
   return (
     <header
@@ -189,7 +223,7 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
             </div>
             <div className="hidden md:flex md:flex-col md:items-start">
               <span className="text-[10px] font-black uppercase tracking-wider opacity-50">
-                Role: Admin
+                Role: {roleLabel}
               </span>
               <span className="text-xs font-black tracking-tight uppercase">
                 {displayUsername}
@@ -233,26 +267,30 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
 
                   {/* Menu List */}
                   <div className="p-3 space-y-1 bg-white">
-                    <button
-                      onClick={() => {
-                        setShowAccountMenu(false);
-                        navigate("/dashboard/camera-setting");
-                      }}
-                      className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl"
-                    >
-                      <Settings size={16} />
-                      <span>Camera Setting</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowAccountMenu(false);
-                        navigate("/dashboard/security-logs");
-                      }}
-                      className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl"
-                    >
-                      <Shield size={16} />
-                      <span>Security Logs</span>
-                    </button>
+                    {canOpenCameraSetting && (
+                      <button
+                        onClick={() => {
+                          setShowAccountMenu(false);
+                          navigate("/dashboard/camera-setting");
+                        }}
+                        className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl"
+                      >
+                        <Settings size={16} />
+                        <span>Camera Setting</span>
+                      </button>
+                    )}
+                    {canOpenSecurityLogs && (
+                      <button
+                        onClick={() => {
+                          setShowAccountMenu(false);
+                          navigate("/dashboard/security-logs");
+                        }}
+                        className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl"
+                      >
+                        <Shield size={16} />
+                        <span>Security Logs</span>
+                      </button>
+                    )}
                   </div>
 
                   {/* Footer / Logout */}

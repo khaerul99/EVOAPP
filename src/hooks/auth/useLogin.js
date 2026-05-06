@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cancelLoginRequest, loginWithDigest } from '../../services/auth/auth.service'
+import { permissionService } from '../../services/user/permission.service'
 import { authStore } from '../../stores/authSlice'
 import { REMEMBER_KEY, clearSession, getRemainingLogoutCooldownMs, hasSession, saveSession, startIdleMonitoring } from '../../lib/session-helper'
 import { addSecurityLog, getSecurityLogs } from '../../lib/security-log'
@@ -114,6 +115,99 @@ export function useLogin() {
                 challenge: loginResult?.challenge || null,
                 rtspPassword: password,
             })
+
+            // Fetch user authorities/roles from device and attach to auth state.
+            try {
+                const userInfoResponse = await permissionService.getUserInfo(sessionPayload.username)
+                
+                // Try to unwrap nested 'user' object if it exists
+                const userInfo = userInfoResponse?.user || userInfoResponse
+                
+                const groupName = String(
+                    userInfo?.GroupName
+                    || userInfo?.groupName
+                    || userInfo?.Group
+                    || userInfo?.group
+                    || userInfo?.UserGroup
+                    || userInfo?.userGroup
+                    || userInfo?.UserGroupName
+                    || userInfo?.userGroupName
+                    || userInfo?.group_name
+                    || userInfo?.['user.Group']
+                    || userInfo?.['user.GroupName']
+                    || userInfo?.['user.UserGroup']
+                    || userInfo?.['user.group']
+                    || '',
+                ).trim()
+
+                const normalizeAuthorities = (input) => {
+                    if (Array.isArray(input)) {
+                        return input.map((value) => String(value || '').trim()).filter(Boolean)
+                    }
+                    if (typeof input === 'string') {
+                        return input.split(/[;,]/).map((value) => value.trim()).filter(Boolean)
+                    }
+                    return []
+                }
+
+                // Handle flattened structure: 'user.AuthorityList[0]', 'user.AuthorityList[1]', etc.
+                const extractFlattenedAuthorities = (obj) => {
+                    const result = []
+                    if (!obj || typeof obj !== 'object') return result
+                    
+                    const keys = Object.keys(obj)
+                    const authorityKeys = keys
+                        .filter(key => key.includes('AuthorityList['))
+                        .sort((a, b) => {
+                            const indexA = parseInt(a.match(/\[(\d+)\]/)?.[1] || '0')
+                            const indexB = parseInt(b.match(/\[(\d+)\]/)?.[1] || '0')
+                            return indexA - indexB
+                        })
+                    
+                    authorityKeys.forEach(key => {
+                        const value = String(obj[key] || '').trim()
+                        if (value) result.push(value)
+                    })
+                    
+                    return result
+                }
+
+                const authorities = [
+                    ...extractFlattenedAuthorities(userInfo),
+                    ...normalizeAuthorities(userInfo?.AuthorityList),
+                    ...normalizeAuthorities(userInfo?.authorities || userInfo?.Authorities),
+                ]
+
+                if (groupName) {
+                    try {
+                        const groupInfo = await permissionService.getGroupInfo(groupName)
+                        authorities.push(
+                            ...extractFlattenedAuthorities(groupInfo),
+                            ...normalizeAuthorities(groupInfo?.AuthorityList),
+                            ...normalizeAuthorities(groupInfo?.authorities || groupInfo?.Authorities),
+                        )
+                    } catch (err) {
+                        // Fallback to user authorities if group lookup is unavailable.
+                    }
+                }
+
+                const mergedAuthorities = Array.from(
+                    new Set(authorities.filter(Boolean)),
+                )
+
+                if (mergedAuthorities.length > 0 || groupName) {
+                    authStore.actions.setSession({
+                        username: sessionPayload.username,
+                        digestSecret: loginResult?.digestSecret || null,
+                        challenge: loginResult?.challenge || null,
+                        rtspPassword: password,
+                        authorities: mergedAuthorities,
+                        groupName,
+                    })
+                }
+            } catch (err) {
+                // Non-fatal: if fetching authorities fails, continue without blocking login
+            }
 
             if (rememberMe) {
                 localStorage.setItem(REMEMBER_KEY, username)

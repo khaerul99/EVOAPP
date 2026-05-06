@@ -10,6 +10,7 @@ import LiveMonitoring from './pages/management/live/LiveMonitoring'
 import Playback from './pages/management/playback/Playback'
 import CameraSettings from './pages/settings/CameraSettings'
 import ProtectedRoute from './middleware/auth/ProtectedRoute'
+import RoleRoute from './middleware/auth/RoleRoute'
 import SecurityLogs from './pages/settings/SecurityLogs'
 import UserManagement from './pages/management/user/UserManagement'
 import SystemSettings from './pages/settings/SystemSettings'
@@ -37,39 +38,39 @@ const routes = createBrowserRouter([
           },
           {
             path: "camera",
-            element: <CameraManagement />
+            element: <RoleRoute requiredPermission="AuthRmtDevice"><CameraManagement /></RoleRoute>
           },
           {
             path: "reports",
-            element: <Reports />
+            element: <RoleRoute requiredPermission="AuthSysInfo"><Reports /></RoleRoute>
           },
           {
             path: "face",
-            element: <FaceManagement />
+            element: <RoleRoute requiredPermission="AuthSecurity"><FaceManagement /></RoleRoute>
           },
           {
             path: "users",
-            element: <UserManagement />
+            element: <RoleRoute requiredPermission="AuthUserMag"><UserManagement /></RoleRoute>
           },
           {
             path: "live",
-            element: <LiveMonitoring />
+            element: <RoleRoute requiredPrefix="monitor_"><LiveMonitoring /></RoleRoute>
           },
           {
             path: "playback",
-            element: <Playback />
+            element: <RoleRoute requiredPrefix="replay_"><Playback /></RoleRoute>
           },
           {
             path: "camera-setting",
-            element: <CameraSettings />
+            element: <RoleRoute requiredAnyPermissions={["AuthSysCfg", "AuthNetCfg", "AuthRmtDevice"]}><CameraSettings /></RoleRoute>
           },
           {
             path: "system-setting",
-            element: <SystemSettings />
+            element: <RoleRoute requiredPermission="AuthSysCfg"><SystemSettings /></RoleRoute>
           },
           {
             path: "security-logs",
-            element: <SecurityLogs />
+            element: <RoleRoute requiredPermission="AuthSecurity"><SecurityLogs /></RoleRoute>
           }
         ]
       }

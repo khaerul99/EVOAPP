@@ -7,11 +7,17 @@ import {
     Settings
 } from 'lucide-react';
 import { logout } from '../../stores/useStore';
+import { useAuthStore } from '../../stores/authSlice';
+import { hasAdminAccess, hasAnyAuthority, hasAuthority, hasAuthorityPrefix } from '../../lib/role-helper';
 
 
 const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
     const navigate = useNavigate();
     const location = useLocation();
+    const auth = useAuthStore((state) => state.auth)
+    const authorities = useAuthStore((state) => state.authorities || [])
+    const authState = { auth, authorities }
+    const isAdmin = hasAdminAccess(authState)
     const [expandedGroups, setExpandedGroups] = useState({ dashboard: false, cctv: false, analytics: false, control: false, user: false });
 
     const menuGroups = [
@@ -21,7 +27,7 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
             icon: LayoutDashboard,
             items: [
                 { label: "Dashboard Overview", path: "/dashboard" },
-                { label: "Activity Log", path: "/dashboard/activity" },
+                { label: "Activity Log", path: "/dashboard/activity", permission: 'AuthEventCfg' },
             ]
         },
         {
@@ -29,7 +35,7 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
             label: 'CCTV Management',
             icon: Video,
             items: [
-                { label: "Camera Management", path: "/dashboard/camera" },
+                { label: "Camera Management", path: "/dashboard/camera", permission: 'AuthRmtDevice' },
             ]
         },
         {
@@ -37,8 +43,8 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
             label: 'AI & Analytics',
             icon: FileBarChart,
             items: [
-                { label: "People Counting", path: "/dashboard/people" },
-                { label: "Analytics Report", path: "/dashboard/reports" },
+                { label: "People Counting", path: "/dashboard/people", permission: 'AuthTaskMag' },
+                { label: "Analytics Report", path: "/dashboard/reports", permission: 'AuthSysInfo' },
             ]
         },
         {
@@ -46,21 +52,40 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
             label: 'Data & Control',
             icon: PlayCircle,
             items: [
-                { label: "Live Monitoring", path: "/dashboard/live" },
-                { label: "Playback", path: "/dashboard/playback" },
-                { label: "Camera Setting", path: "/dashboard/camera-setting" },
+                { label: "Live Monitoring", path: "/dashboard/live", permissionPrefix: 'monitor_' },
+                { label: "Playback", path: "/dashboard/playback", permissionPrefix: 'replay_' },
+                { label: "Camera Setting", path: "/dashboard/camera-setting", anyPermissions: ['AuthSysCfg', 'AuthNetCfg', 'AuthRmtDevice'] },
             ]
         },
-        {
-            id: 'user',
-            label: 'Management',
-            icon: Users,
-            items: [
-                { label: "User Management", path: "/dashboard/users" },
-                { label: "Face Recognition", path: "/dashboard/face" },
-            ]
-        },
+                {
+                    id: 'user',
+                    label: 'Management',
+                    icon: Users,
+                    items: [
+                        { label: "User Management", path: "/dashboard/users", permission: 'AuthUserMag' },
+                        { label: "Face Recognition", path: "/dashboard/face", permission: 'AuthSecurity' },
+                    ]
+                },
     ];
+
+    const visibleMenuGroups = menuGroups
+        .map((group) => ({
+            ...group,
+            items: group.items.filter((item) => {
+                if (item.anyPermissions) {
+                    return hasAnyAuthority(authState, item.anyPermissions) || isAdmin
+                }
+                if (item.permissionPrefix) {
+                    return hasAuthorityPrefix(authState, item.permissionPrefix) || isAdmin
+                }
+                if (item.permission) {
+                    return hasAuthority(authState, item.permission) || isAdmin
+                }
+                if (item.adminOnly) return isAdmin
+                return true
+            }),
+        }))
+        .filter((group) => group.items.length > 0);
 
     const toggleGroup = (groupId) => {
         setExpandedGroups(prev => ({
@@ -105,7 +130,7 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
 
             {/* Navigation */}
             <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-                {menuGroups.map((group) => {
+                {visibleMenuGroups.map((group) => {
                     const isExpanded = expandedGroups[group.id];
                     const hasActiveItem = group.items.some(item => location.pathname === item.path);
                     
