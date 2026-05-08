@@ -65,3 +65,30 @@ export function hasAuthorityPrefix(stateOrAuthorities = [], prefix = '') {
         return false
     }
 }
+
+export function canAccessChannelAction(stateOrAuthorities = [], action = 'Live', channelId) {
+    try {
+        if (hasAdminAccess(stateOrAuthorities)) return true
+
+        const id = Number(channelId)
+        if (!Number.isFinite(id) || id < 1) return false
+
+        const actionName = String(action || '').trim()
+        const actionToken = `${actionName}Channel${id}`
+
+        // legacy token variants used by some devices, e.g. Monitor_01, Replay_01
+        const pad = String(Number(id)).padStart(2, '0')
+        const legacyToken = actionName.toLowerCase() === 'live' ? `Monitor_${pad}` : `Replay_${pad}`
+
+        return hasAnyAuthority(stateOrAuthorities, [actionToken, legacyToken])
+    } catch {
+        return false
+    }
+}
+
+export function filterChannelsByAction(rows = [], stateOrAuthorities = [], action = 'Live') {
+    if (!Array.isArray(rows) || rows.length === 0) return []
+    if (hasAdminAccess(stateOrAuthorities)) return rows
+
+    return rows.filter((row) => canAccessChannelAction(stateOrAuthorities, action, row.id))
+}

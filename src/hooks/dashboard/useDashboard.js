@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../stores/useStore';
 import { getSecurityLogs } from '../../lib/security-log';
 import { buildDashboardEvents, deriveStats, normalizeCamera, pickDefaultActiveCamera } from '../../lib/dashboard-utils';
+import { authStore } from '../../stores/authSlice';
+import { filterChannelsByAction } from '../../lib/role-helper';
 
 const FALLBACK_THUMBNAILS = [
     'https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=800&q=80',
@@ -35,10 +37,11 @@ export const useDashboard = () => {
         return () => clearInterval(refreshInterval);
     }, [fetchCameras]);
 
-    const normalizedCameras = useMemo(
-        () => cameras.map((camera, index) => normalizeCamera(camera, index, FALLBACK_THUMBNAILS)),
-        [cameras],
-    );
+    const normalizedCameras = useMemo(() => {
+        const mapped = cameras.map((camera, index) => normalizeCamera(camera, index, FALLBACK_THUMBNAILS));
+        const authState = authStore.getState();
+        return filterChannelsByAction(mapped, authState, 'Live');
+    }, [cameras]);
 
     const activeCamera = useMemo(() => {
         if (normalizedCameras.length === 0) {
