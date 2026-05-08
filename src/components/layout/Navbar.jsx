@@ -19,6 +19,7 @@ import { getSession } from "../../lib/session-helper";
 import { logout } from "../../stores/useStore";
 import { useAuthStore } from "../../stores/authSlice";
 import { hasAdminAccess, hasAnyAuthority, hasAuthority } from "../../lib/role-helper";
+import ResetPasswordModal from '../ui/ResetPasswordModal';
 
 const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
   const [currentTime, setCurrentTime] = useState(
@@ -75,10 +76,11 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
   const auth = useAuthStore((state) => state.auth);
   const authorities = useAuthStore((state) => state.authorities || []);
   const authState = React.useMemo(() => ({ auth, authorities }), [auth, authorities]);
-  const canOpenCameraSetting = hasAdminAccess(authState)
-    || hasAnyAuthority(authState, ["AuthSysCfg", "AuthNetCfg", "AuthRmtDevice"]);
   const canOpenSecurityLogs = hasAdminAccess(authState)
     || hasAuthority(authState, "AuthSecurity");
+  // Always allow user to access reset-password action from account menu
+  const canOpenResetPassword = true;
+  const [showResetModal, setShowResetModal] = useState(false);
 
   const roleLabel = React.useMemo(() => {
     try {
@@ -267,17 +269,20 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
 
                   {/* Menu List */}
                   <div className="p-3 space-y-1 bg-white">
-                    {canOpenCameraSetting && (
-                      <button
-                        onClick={() => {
-                          setShowAccountMenu(false);
-                          navigate("/dashboard/camera-setting");
-                        }}
-                        className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl"
-                      >
-                        <Settings size={16} />
-                        <span>Camera Setting</span>
-                      </button>
+                    {canOpenResetPassword && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setShowAccountMenu(false);
+                            setShowResetModal(true);
+                          }}
+                          className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl"
+                        >
+                          <Settings size={16} />
+                          <span>Reset Password</span>
+                        </button>
+                        <ResetPasswordModal open={showResetModal} onClose={() => setShowResetModal(false)} />
+                      </>
                     )}
                     {canOpenSecurityLogs && (
                       <button

@@ -25,7 +25,6 @@ const routes = createBrowserRouter([
     element: <Navigate to="/dashboard" replace /> 
   },
   {
-    
     element: <ProtectedRoute />, 
     children: [
       {
@@ -62,7 +61,7 @@ const routes = createBrowserRouter([
           },
           {
             path: "camera-setting",
-            element: <RoleRoute requiredAnyPermissions={["AuthSysCfg", "AuthNetCfg", "AuthRmtDevice"]}><CameraSettings /></RoleRoute>
+            element: <RoleRoute requiredPermission="AuthEventCfg"><CameraSettings /></RoleRoute>
           },
           {
             path: "system-setting",

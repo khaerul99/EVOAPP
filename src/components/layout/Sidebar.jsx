@@ -54,7 +54,7 @@ const Sidebar = ({ isSidebarOpen, onToggleSidebar }) => {
             items: [
                 { label: "Live Monitoring", path: "/dashboard/live", permissionPrefix: 'monitor_' },
                 { label: "Playback", path: "/dashboard/playback", permissionPrefix: 'replay_' },
-                { label: "Camera Setting", path: "/dashboard/camera-setting", anyPermissions: ['AuthSysCfg', 'AuthNetCfg', 'AuthRmtDevice'] },
+                { label: "Camera Setting", path: "/dashboard/camera-setting", permission: 'AuthEventCfg' },
             ]
         },
                 {
