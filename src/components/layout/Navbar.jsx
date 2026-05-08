@@ -270,19 +270,16 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
                   {/* Menu List */}
                   <div className="p-3 space-y-1 bg-white">
                     {canOpenResetPassword && (
-                      <>
-                        <button
-                          onClick={() => {
-                            setShowAccountMenu(false);
-                            setShowResetModal(true);
-                          }}
-                          className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl"
-                        >
-                          <Settings size={16} />
-                          <span>Reset Password</span>
-                        </button>
-                        <ResetPasswordModal open={showResetModal} onClose={() => setShowResetModal(false)} />
-                      </>
+                      <button
+                        onClick={() => {
+                          setShowAccountMenu(false);
+                          setShowResetModal(true);
+                        }}
+                        className="flex items-center w-full gap-3 px-4 py-3 text-xs font-bold transition-all text-navy/60 hover:text-navy hover:bg-gray-50 rounded-2xl"
+                      >
+                        <Settings size={16} />
+                        <span>Reset Password</span>
+                      </button>
                     )}
                     {canOpenSecurityLogs && (
                       <button
@@ -315,6 +312,7 @@ const Navbar = ({ isSidebarOpen, onToggleSidebar }) => {
               </>
             )}
           </AnimatePresence>
+          <ResetPasswordModal open={showResetModal} onClose={() => setShowResetModal(false)} />
         </div>
       </div>
     </header>

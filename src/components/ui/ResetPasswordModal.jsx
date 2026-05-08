@@ -33,10 +33,7 @@ const ResetPasswordModal = ({ open, onClose }) => {
       setOldPwd('');
       setNewPwd('');
       setConfirmPwd('');
-      // optionally force logout after short delay
-      setTimeout(() => {
-        onClose();
-      }, 800);
+      onClose();
     } catch (err) {
       const errMsg = (err?.response && (typeof err.response.data === 'string' ? err.response.data : err.response.data?.message)) || err?.message || String(err);
       setMessage(String(errMsg));
