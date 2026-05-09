@@ -44,7 +44,7 @@ const ResetPasswordModal = ({ open, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-md p-6 bg-white rounded-2xl shadow-lg">
+      <div className="w-full max-w-md p-6 bg-white shadow-lg rounded-2xl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold">Reset Password</h3>
           <button onClick={onClose} className="p-2 text-navy/60 hover:text-navy">
@@ -59,7 +59,7 @@ const ResetPasswordModal = ({ open, onClose }) => {
               type="password"
               value={oldPwd}
               onChange={(e) => setOldPwd(e.target.value)}
-              className="w-full mt-1 px-3 py-2 border rounded-md"
+              className="w-full px-3 py-2 mt-1 border rounded-md"
               required
             />
           </div>
@@ -70,7 +70,7 @@ const ResetPasswordModal = ({ open, onClose }) => {
               type="password"
               value={newPwd}
               onChange={(e) => setNewPwd(e.target.value)}
-              className="w-full mt-1 px-3 py-2 border rounded-md"
+              className="w-full px-3 py-2 mt-1 border rounded-md"
               required
             />
           </div>
@@ -81,7 +81,7 @@ const ResetPasswordModal = ({ open, onClose }) => {
               type="password"
               value={confirmPwd}
               onChange={(e) => setConfirmPwd(e.target.value)}
-              className="w-full mt-1 px-3 py-2 border rounded-md"
+              className="w-full px-3 py-2 mt-1 border rounded-md"
               required
             />
           </div>
@@ -89,8 +89,8 @@ const ResetPasswordModal = ({ open, onClose }) => {
           {message && <div className="text-sm text-red-600">{message}</div>}
 
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded-md border">Cancel</button>
-            <button type="submit" disabled={loading} className="px-4 py-2 rounded-md bg-navy text-white disabled:opacity-50">
+            <button type="button" onClick={onClose} className="px-4 py-2 border rounded-md">Cancel</button>
+            <button type="submit" disabled={loading} className="px-4 py-2 text-white rounded-md bg-navy disabled:opacity-50">
               {loading ? 'Saving...' : 'Reset Password'}
             </button>
           </div>

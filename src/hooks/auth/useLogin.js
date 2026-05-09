@@ -5,6 +5,7 @@ import { permissionService } from '../../services/user/permission.service'
 import { authStore } from '../../stores/authSlice'
 import { REMEMBER_KEY, clearSession, getRemainingLogoutCooldownMs, hasSession, saveSession, startIdleMonitoring } from '../../lib/session-helper'
 import { addSecurityLog, getSecurityLogs } from '../../lib/security-log'
+import { warmupDigestChallenge } from '../../services/auth/digest-warmup.service'
 
 function sleep(milliseconds) {
     return new Promise((resolve) => {
@@ -228,6 +229,10 @@ export function useLogin() {
                 message: `Login berhasil untuk user ${sessionPayload.username}.`,
                 username: sessionPayload.username,
             })
+
+            // Warmup digest challenge untuk menghindari 401 pada request pertama
+            await warmupDigestChallenge().catch(() => null)
+
             navigate('/dashboard', { replace: true })
         } catch (requestError) {
             const errorMessage = requestError?.message || 'Username atau password salah.'
