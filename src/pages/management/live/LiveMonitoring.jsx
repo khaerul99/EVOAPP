@@ -1,5 +1,5 @@
 ﻿import React from 'react';
-import { Loader2, Maximize2, Minimize2, Radio, Signal } from 'lucide-react';
+import { Loader2, Maximize2, Minimize2, Radio, Signal, Sparkles, Shirt, UserRound, Briefcase, Car } from 'lucide-react';
 import { useLive } from '../../../hooks/live/useLive';
 
 const LiveMonitoring = () => {
@@ -27,7 +27,20 @@ const LiveMonitoring = () => {
         go2rtcDiagnostic,
         isFullscreen,
         handleToggleFullscreen,
+        detectionFeed,
+        detectionError,
     } = useLive();
+
+    const colorClassByName = {
+        black: 'bg-black',
+        gray: 'bg-gray-400',
+        white: 'bg-white border border-slate-300',
+        blue: 'bg-blue-500',
+        red: 'bg-red-500',
+        green: 'bg-green-500',
+        yellow: 'bg-yellow-400',
+    };
+    const getColorBadgeClass = (colorName) => colorClassByName[String(colorName || '').toLowerCase()] || 'bg-slate-300';
 
     return (
         <div className="space-y-6 duration-500 animate-in fade-in">
@@ -121,6 +134,77 @@ const LiveMonitoring = () => {
                         </div>
                     </div>
 
+                    <div className="overflow-hidden border bg-gradient-to-b from-white to-slate-50 rounded-3xl border-navy/10">
+                        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-navy/10">
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-navy/45">Smart Events</p>
+                                <h3 className="mt-1 text-lg font-black text-navy">Human + Car Detection Feed</h3>
+                            </div>
+                            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-cyan-700">
+                                <Sparkles size={12} />
+                                Realtime
+                            </div>
+                        </div>
+                        <div className="max-h-[660px] overflow-y-auto p-4">
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-1">
+                                {detectionFeed.length === 0 && (
+                                    <div className="px-4 py-6 text-sm font-semibold border border-dashed rounded-2xl text-navy/55 border-navy/20 md:col-span-2">
+                                        Belum ada event Human/Car realtime untuk channel ini.
+                                    </div>
+                                )}
+                                {detectionFeed.map((item) => (
+                                    <article key={item.id} className="overflow-hidden bg-white border shadow-sm rounded-2xl border-navy/10">
+                                        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-navy/10">
+                                            <p className="text-xs font-black truncate text-navy">{selectedChannel?.channelName || selectedChannel?.name || `Channel ${form.channel}`}</p>
+                                            <p className="text-[11px] font-bold text-navy/55">{item.time}</p>
+                                        </div>
+                                        <div className="grid grid-cols-[92px,1fr] gap-3 p-4">
+                                            <img src={item.thumbUrl || `/uploads/snapshot/ch${item.channelId || form.channel}.jpeg`} alt={item.label} className="object-contain w-[92px] h-[150px] rounded-xl bg-slate-100" />
+                                            <div className="space-y-2">
+                                                {String(item.label || '').toLowerCase().includes('vehicle') ? (
+                                                    <>
+                                                        <div className="flex items-center gap-2 text-xs font-bold text-navy/80">
+                                                            <Car size={14} />
+                                                            <span>Vehicle</span>
+                                                        </div>
+                                                        <div className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-navy/75">
+                                                            <Car size={11} />
+                                                            Status: Detected
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <div className="flex items-center gap-2 text-xs font-bold text-navy/80">
+                                                            <Shirt size={14} />
+                                                            <span className={`inline-block h-4 w-4 rounded-sm ${getColorBadgeClass(item.coatColor)}`} />
+                                                            <span>{item.sleeves}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 text-xs font-bold text-navy/80">
+                                                            <UserRound size={14} />
+                                                            <span className={`inline-block h-4 w-4 rounded-sm ${getColorBadgeClass(item.lowerColor)}`} />
+                                                            <span>{item.lowerType}</span>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-1.5 pt-1">
+                                                            <div className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-navy/75">Sex: {item.sex}</div>
+                                                            <div className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-navy/75">Age: {item.age}</div>
+                                                            <div className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-navy/75"><Shirt size={11} />Hat: {item.hasHat}</div>
+                                                            <div className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-navy/75"><Briefcase size={11} />Bag: {item.hasBag}</div>
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="px-4 py-3 text-sm font-black border-t text-navy border-navy/10">{item.label}</div>
+                                    </article>
+                                ))}
+                                {detectionError && (
+                                    <div className="px-4 py-3 text-xs font-bold border rounded-xl border-amber-200 bg-amber-50 text-amber-700 md:col-span-2">
+                                        {detectionError}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 </section>
 
                 <aside className="space-y-6 xl:col-span-2">

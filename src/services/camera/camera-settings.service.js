@@ -685,60 +685,264 @@ function parseAttachEventStream(rawData, expectedCodes = []) {
   return initialState;
 }
 
-function buildAttachQuery({ channelId, eventCodes }) {
-  const codesText = `[${(eventCodes || []).join(",")}]`;
-  const encodedCodes = encodeURIComponent(codesText);
+function parseAttachEventEntries(rawData) {
+  const text = String(rawData || "");
+  const entries = [];
 
+  const parseKeyValueLine = (line) => {
+    const pairs = String(line || "").split(";").map((chunk) => chunk.trim()).filter(Boolean);
+    const fields = {};
+    pairs.forEach((pair) => {
+      const separatorIndex = pair.indexOf("=");
+      if (separatorIndex < 0) {
+        return;
+      }
+      const key = pair.slice(0, separatorIndex).trim();
+      const value = pair.slice(separatorIndex + 1).trim();
+      if (!key) {
+        return;
+      }
+      fields[key] = value;
+      fields[String(key).toLowerCase()] = value;
+    });
+    return fields;
+  };
+
+  const parseWithEmbeddedJson = () => {
+    let cursor = 0;
+    while (cursor < text.length) {
+      const codeMatch = /(?:^|[\r\n;])\s*code=/i.exec(text.slice(cursor));
+      const codeIndex = codeMatch ? cursor + codeMatch.index : -1;
+      if (codeIndex < 0) {
+        break;
+      }
+
+      const dataIndex = text.indexOf("data=", codeIndex);
+      if (dataIndex < 0) {
+        cursor = codeIndex + 5;
+        continue;
+      }
+
+      const prefix = text.slice(codeIndex, dataIndex).trim().replace(/;$/, "");
+      const jsonStart = text.indexOf("{", dataIndex);
+      if (jsonStart < 0) {
+        cursor = dataIndex + 5;
+        continue;
+      }
+
+      let depth = 0;
+      let jsonEnd = -1;
+      for (let i = jsonStart; i < text.length; i += 1) {
+        const ch = text[i];
+        if (ch === "{") depth += 1;
+        if (ch === "}") {
+          depth -= 1;
+          if (depth === 0) {
+            jsonEnd = i;
+            break;
+          }
+        }
+      }
+
+      if (jsonEnd < 0) {
+        break;
+      }
+
+      const jsonText = text.slice(jsonStart, jsonEnd + 1);
+      const fields = parseKeyValueLine(prefix);
+      let data = null;
+      try {
+        data = JSON.parse(jsonText);
+      } catch {
+        data = null;
+      }
+
+      const code = String(fields.Code || fields.code || "");
+      const action = String(fields.action || fields.Action || "start").toLowerCase();
+      if (code) {
+        entries.push({
+          code,
+          action,
+          active: !["stop", "end", "idle", "offline"].includes(action),
+          fields,
+          data,
+          raw: `${prefix};data=${jsonText}`,
+        });
+      }
+
+      cursor = jsonEnd + 1;
+    }
+  };
+
+  parseWithEmbeddedJson();
+
+  if (entries.length > 0) {
+    return entries;
+  }
+
+  // Fallback for one-line key=value payload format.
+  const rows = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return rows.map((row) => {
+    const fields = parseKeyValueLine(row);
+    const code = String(fields.Code || fields.code || "");
+    const action = String(fields.action || fields.Action || "start").toLowerCase();
+    return {
+      code,
+      action,
+      active: !["stop", "end", "idle", "offline"].includes(action),
+      fields,
+      data: null,
+      raw: row,
+    };
+  }).filter((entry) => entry.code);
+}
+
+function buildAttachQueryVariants({ channelId, eventCodes }) {
+  const normalizedCodes = (Array.isArray(eventCodes) ? eventCodes : [])
+    .map((code) => String(code || "").trim())
+    .filter(Boolean);
+  const csvCodes = normalizedCodes.join(",");
+  const bracketCodes = `[${csvCodes}]`;
+
+  // Revert to legacy single canonical format that previously returned 200 on target firmware.
+  return [`action=attach&channel=${channelId}&codes=${bracketCodes}`];
+}
+
+function buildRealtimeEventPayload(raw, eventCodes = []) {
+  const normalizedRaw = String(raw || "");
+  const entries = parseAttachEventEntries(normalizedRaw);
+  const events = parseAttachEventStream(normalizedRaw, eventCodes);
   return {
-    raw: `action=attach&channel=${channelId}&codes=${codesText}`,
-    encoded: `action=attach&channel=${channelId}&codes=${encodedCodes}`,
+    events,
+    entries,
+    raw: normalizedRaw,
+    fetchedAt: new Date().toISOString(),
   };
 }
 
+function payloadHasExpectedEvent(payload, expectedSet) {
+  const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+  const events = payload?.events || {};
+  const hasExpectedEntry = entries.some((entry) => expectedSet.has(String(entry?.code || "").toLowerCase()));
+  const hasExpectedEvent = Object.keys(events).some((code) => expectedSet.has(String(code || "").toLowerCase()));
+  return hasExpectedEntry || hasExpectedEvent || expectedSet.size === 0;
+}
+
+function extractRawEventDataFromError(error) {
+  const streamedRaw = error?.__streamedText;
+  if (typeof streamedRaw === "string" && streamedRaw.trim()) {
+    return streamedRaw;
+  }
+
+  const responseRaw = error?.response?.data;
+  if (typeof responseRaw === "string" && responseRaw.trim()) {
+    return responseRaw;
+  }
+
+  const requestRaw = error?.request?.responseText;
+  if (typeof requestRaw === "string" && requestRaw.trim()) {
+    return requestRaw;
+  }
+
+  return "";
+}
+
 export const cameraSettingsService = {
-  getRealtimeEventStatus: async ({ channelId, eventCodes = [] }) => {
-    const channelCandidates = [Number(channelId), Number(channelId) - 1].filter(
+  getRealtimeEventStatus: async ({ channelId, eventCodes = [], strictChannel = false }) => {
+    const channelCandidates = (strictChannel
+      ? [Number(channelId)]
+      : [Number(channelId), Number(channelId) - 1]
+    ).filter(
       (value, index, array) =>
-        Number.isFinite(value) && value >= 0 && array.indexOf(value) === index,
+        Number.isFinite(value) && value > 0 && array.indexOf(value) === index,
     );
 
-    const request = (queryString) =>
-      ApiClient.get(`/cgi-bin/eventManager.cgi?${queryString}`, {
-        timeout: 100000,
-        responseType: "text",
-        transformResponse: [(value) => value],
-        headers: {
-          "Cache-Control": "no-cache, no-store",
-          Pragma: "no-cache",
-        },
-      });
+    const request = async (queryString) => {
+      let streamedText = "";
+      const controller = new AbortController();
+      const timer = setTimeout(() => {
+        controller.abort("event-attach-window-timeout");
+      }, 4500);
+
+      try {
+        const response = await ApiClient.get(`/cgi-bin/eventManager.cgi?${queryString}`, {
+          timeout: 0,
+          signal: controller.signal,
+          responseType: "text",
+          transformResponse: [(value) => value],
+          onDownloadProgress: (progressEvent) => {
+            const fromTarget = progressEvent?.event?.target?.responseText;
+            const fromCurrent = progressEvent?.currentTarget?.responseText;
+            const fromCurrentResponse = progressEvent?.currentTarget?.response;
+            const latest = fromTarget || fromCurrent || fromCurrentResponse || "";
+            if (typeof latest === "string" && latest.length > 0) {
+              streamedText = latest;
+              if (/Code=([A-Za-z0-9_]+);action=/i.test(streamedText)) {
+                controller.abort("event-attach-enough-data");
+              }
+            }
+          },
+          headers: {
+            "Cache-Control": "no-cache, no-store",
+            Pragma: "no-cache",
+          },
+        });
+
+        return {
+          ...response,
+          data: streamedText || String(response?.data || ""),
+        };
+      } catch (error) {
+        error.__streamedText = streamedText;
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
 
     try {
       await warmupDigestChallenge();
       let lastError = null;
+      let lastSuccessPayload = null;
+      const expectedSet = new Set((Array.isArray(eventCodes) ? eventCodes : []).map((code) => String(code || "").toLowerCase()));
 
       for (const channelCandidate of channelCandidates) {
-        const query = buildAttachQuery({
+        const queries = buildAttachQueryVariants({
           channelId: channelCandidate,
           eventCodes,
         });
-        const variants = [query.raw, query.encoded];
+        const variants = queries;
 
         for (const variant of variants) {
           try {
             const response = await request(variant);
-            const raw = String(response?.data || "");
-            return {
-              events: parseAttachEventStream(raw, eventCodes),
-              raw,
-              fetchedAt: new Date().toISOString(),
-            };
+            const payload = buildRealtimeEventPayload(response?.data, eventCodes);
+            if (payloadHasExpectedEvent(payload, expectedSet)) {
+              return payload;
+            }
+            lastSuccessPayload = payload;
           } catch (error) {
+            const raw = extractRawEventDataFromError(error);
+            if (raw) {
+              const payload = buildRealtimeEventPayload(raw, eventCodes);
+              if (payloadHasExpectedEvent(payload, expectedSet)) {
+                return payload;
+              }
+              if ((payload.entries || []).length > 0 || Object.keys(payload.events || {}).length > 0) {
+                lastSuccessPayload = payload;
+              }
+            }
             lastError = error;
           }
         }
       }
 
+      if (lastSuccessPayload) {
+        return lastSuccessPayload;
+      }
       throw lastError || new Error("Gagal attach ke eventManager.");
     } catch (firstError) {
       const status = Number(firstError?.response?.status || 0);
@@ -748,30 +952,49 @@ export const cameraSettingsService = {
 
       await warmupDigestChallenge();
       let retryLastError = null;
+      let retryLastSuccessPayload = null;
+      const expectedSet = new Set((Array.isArray(eventCodes) ? eventCodes : []).map((code) => String(code || "").toLowerCase()));
 
       for (const channelCandidate of channelCandidates) {
-        const query = buildAttachQuery({
+        const queries = buildAttachQueryVariants({
           channelId: channelCandidate,
           eventCodes,
         });
-        const variants = [query.raw, query.encoded];
+        const variants = queries;
 
         for (const variant of variants) {
           try {
             const retryResponse = await request(variant);
-            const retryRaw = String(retryResponse?.data || "");
-            return {
-              events: parseAttachEventStream(retryRaw, eventCodes),
-              raw: retryRaw,
-              fetchedAt: new Date().toISOString(),
-            };
+            const payload = buildRealtimeEventPayload(retryResponse?.data, eventCodes);
+            if (payloadHasExpectedEvent(payload, expectedSet)) {
+              return payload;
+            }
+            retryLastSuccessPayload = payload;
           } catch (retryError) {
+            const raw = extractRawEventDataFromError(retryError);
+            if (raw) {
+              const payload = buildRealtimeEventPayload(raw, eventCodes);
+              if (payloadHasExpectedEvent(payload, expectedSet)) {
+                return payload;
+              }
+              if ((payload.entries || []).length > 0 || Object.keys(payload.events || {}).length > 0) {
+                retryLastSuccessPayload = payload;
+              }
+            }
             retryLastError = retryError;
           }
         }
       }
 
-      throw retryLastError || firstError;
+      if (retryLastSuccessPayload) {
+        return retryLastSuccessPayload;
+      }
+      return {
+        events: {},
+        entries: [],
+        raw: extractRawEventDataFromError(retryLastError || firstError),
+        fetchedAt: new Date().toISOString(),
+      };
     }
   },
 
