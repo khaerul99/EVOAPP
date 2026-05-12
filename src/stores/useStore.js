@@ -75,7 +75,6 @@ async function fetchCameraSnapshot(set, get) {
         })
 
         try {
-            console.log('[useStore.fetchCameraSnapshot] Starting camera fetch...')
             const [rows, channelStates] = await Promise.all([
                 cameraService.getCameraChannels(),
                 cameraService.getChannelConnectionStates(),

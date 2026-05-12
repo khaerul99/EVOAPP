@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../stores/useStore';
 import { getSecurityLogs } from '../../lib/security-log';
 import { buildDashboardEvents, deriveStats, normalizeCamera, pickDefaultActiveCamera } from '../../lib/dashboard-utils';
+import { authStore } from '../../stores/authSlice';
+import { filterChannelsByAction } from '../../lib/role-helper';
 
 const FALLBACK_THUMBNAILS = [
     'https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=800&q=80',
@@ -35,48 +37,31 @@ export const useDashboard = () => {
         return () => clearInterval(refreshInterval);
     }, [fetchCameras]);
 
-    const normalizedCameras = useMemo(
-        () => {
-            const normalized = cameras.map((camera, index) => normalizeCamera(camera, index, FALLBACK_THUMBNAILS));
-            console.log('[useDashboard.normalizedCameras] Total:', normalized.length);
-            normalized.forEach(cam => {
-                console.log(`[useDashboard.normalizedCameras] Camera ${cam.id}:`, { name: cam.name, status: cam.status });
-            });
-            return normalized;
-        },
-        [cameras],
-    );
+    const normalizedCameras = useMemo(() => {
+        const mapped = cameras.map((camera, index) => normalizeCamera(camera, index, FALLBACK_THUMBNAILS));
+        const authState = authStore.getState();
+        return filterChannelsByAction(mapped, authState, 'Live');
+    }, [cameras]);
 
     const activeCamera = useMemo(() => {
         if (normalizedCameras.length === 0) {
-            console.log('[useDashboard.activeCamera] No normalized cameras');
             return null;
         }
 
         const activeChannelNumber = Number(String(activeChannel || '').replace(/\D/g, ''));
-        console.log('[useDashboard.activeCamera] activeChannel:', activeChannel, 'parsed number:', activeChannelNumber);
-        
         if (Number.isFinite(activeChannelNumber) && activeChannelNumber > 0) {
             const matchedCamera = normalizedCameras.find((camera) => Number(camera.id) === activeChannelNumber);
             if (matchedCamera) {
-                console.log('[useDashboard.activeCamera] Matched camera:', matchedCamera.id, matchedCamera.name);
                 return matchedCamera;
             }
         }
 
         const onlineCamera = normalizedCameras.find((camera) => camera.status === 'online');
-        console.log('[useDashboard.activeCamera] First online camera:', onlineCamera?.id, onlineCamera?.name);
-        const result = onlineCamera || pickDefaultActiveCamera(normalizedCameras);
-        console.log('[useDashboard.activeCamera] Final result:', result?.id, result?.name);
-        return result;
+        return onlineCamera || pickDefaultActiveCamera(normalizedCameras);
     }, [activeChannel, normalizedCameras]);
 
     const securityLogs = useMemo(() => getSecurityLogs(), [currentDateTime]);
-    const stats = useMemo(() => {
-        const derived = deriveStats(normalizedCameras, securityLogs, channelConnectionStates);
-        console.log('[useDashboard.stats]', derived);
-        return derived;
-    }, [normalizedCameras, securityLogs, channelConnectionStates]);
+    const stats = useMemo(() => deriveStats(normalizedCameras, securityLogs, channelConnectionStates), [normalizedCameras, securityLogs, channelConnectionStates]);
     const events = useMemo(() => buildDashboardEvents(normalizedCameras, securityLogs), [normalizedCameras, securityLogs]);
 
     const setActiveCamera = useCallback((camera) => {

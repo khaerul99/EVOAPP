@@ -645,7 +645,7 @@ export function useUserManagement() {
 
             await userService.addGroup({
                 payload: {
-                    name: groupFormData.name,
+                    name: groupName,
                     memo: groupFormData.memo,
                     authority: groupFormData.authority,
                 },
@@ -666,6 +666,25 @@ export function useUserManagement() {
             setSubmitting(false);
         }
     }, [closeAddGroupModal, groupAuthPassword, groupFormData, loadAllUsers]);
+
+    const handleGroupPermissionChange = useCallback((permissions) => {
+        // permissions bisa berupa array atau string yang dipisahkan koma
+        let permissionString = '';
+        
+        if (Array.isArray(permissions)) {
+            permissionString = permissions
+                .map((entry) => String(entry || '').trim())
+                .filter(Boolean)
+                .join(',');
+        } else {
+            permissionString = String(permissions || '').trim();
+        }
+        
+        setGroupFormData((prev) => ({
+            ...prev,
+            authority: permissionString,
+        }));
+    }, []);
 
     const handleAddUser = useCallback(async (event) => {
         event.preventDefault();
@@ -1162,6 +1181,7 @@ export function useUserManagement() {
         confirmGroupAuth,
         handleAddUser,
         handleAddGroup,
+        handleGroupPermissionChange,
         handleModifyUser,
         handleModifyUserDescription,
         handleModifyOwnPassword,

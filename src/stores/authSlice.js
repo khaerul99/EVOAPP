@@ -6,6 +6,7 @@ const AUTH_STORAGE_KEY = "evosecure_auth_state";
 const defaultState = {
   isAuthenticated: false,
   auth: null,
+  authorities: [],
   runtimeRtspPassword: null,
   challenge: null,
   nc: 0,
@@ -16,14 +17,16 @@ export const useAuthStore = create(
   persist(
     (set) => ({
       ...defaultState,
-      setSession: ({ username, digestSecret, challenge, rtspPassword }) =>
+      setSession: ({ username, digestSecret, challenge, rtspPassword, authorities = [], groupName = '' }) =>
         set((state) => ({
           ...state,
           isAuthenticated: true,
           auth: {
             username,
             digestSecret,
+            groupName: typeof groupName === 'string' ? groupName : '',
           },
+          authorities: Array.isArray(authorities) ? authorities : [],
           runtimeRtspPassword: typeof rtspPassword === "string" ? rtspPassword : null,
           challenge: challenge || state.challenge,
           nc: 0,
@@ -51,6 +54,7 @@ export const useAuthStore = create(
       partialize: (state) => ({
         isAuthenticated: state.isAuthenticated,
         auth: state.auth,
+        authorities: state.authorities,
         challenge: state.challenge,
         nc: state.nc,
         loginAt: state.loginAt,

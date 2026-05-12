@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { useDashboard } from "../../hooks/dashboard/useDashboard";
 import { liveService } from "../../services/live/live.service";
-import DiagnosticsPanel from "../../components/diagnostics/DiagnosticsPanel";
 
 const DashboardHome = () => {
   const [streamErrors, setStreamErrors] = useState({});
@@ -361,8 +360,6 @@ const DashboardHome = () => {
           )}
         </div>
       </div>
-
-      <DiagnosticsPanel />
     </div>
   );
 };

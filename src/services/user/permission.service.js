@@ -410,21 +410,8 @@ class PermissionService {
             },
         }));
 
-        // Optional variant used by some gateways that keep managerName for auditing.
-        if (managerName) {
-            authorityVariants.forEach((list) => {
-                requestBodyVariants.push({
-                    name: groupName,
-                    group: {
-                        Name: groupName,
-                        AuthorityList: list,
-                    },
-                    managerName,
-                });
-            });
-        }
-
         // API-only flow for modifyGroup to match device documentation.
+        // Auth handled via digest header, not in request body.
         for (let i = 0; i < requestBodyVariants.length; i += 1) {
             try {
                 const response = await ApiClient.post('/cgi-bin/api/userManager/modifyGroup', requestBodyVariants[i]);

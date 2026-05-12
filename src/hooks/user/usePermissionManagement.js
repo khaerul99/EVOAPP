@@ -49,8 +49,7 @@ const PERMISSION_TO_AUTHORITY_TOKEN = {
     Peripheral: 'AuthPeripheral',
     PTZ: 'AuthPTZ',
     Backup: 'AuthBackup',
-    Maintenance: 'AuthMaintence',
-    'Device Maintenance': 'AuthMaintence',
+    Maintenance: 'Device Maintenance',
     Tasks: 'AuthTaskMag',
     'Manual Control': 'AuthManuCtr',
 };
@@ -432,7 +431,6 @@ export function usePermissionManagement(userName, groupName = '', authoritiesOve
             if (!nextCanEdit) {
             }
         } catch (err) {
-            console.error('Failed to load permission data:', err);
             let errorMessage = 'Gagal memuat data permission dari perangkat.';
             
             if (err?.response?.status === 501) {
@@ -512,10 +510,14 @@ export function usePermissionManagement(userName, groupName = '', authoritiesOve
 
     const buildAuthorityPayloadFromDraft = useCallback(() => {
         const tokens = [];
+        const isAdminGroup = String(groupName || '').trim().toLowerCase() === 'admin';
 
         Object.entries(PERMISSION_CATEGORIES).forEach(([category, data]) => {
             data.permissions.forEach((permissionName) => {
                 if (!draftPermissionState?.[category]?.[permissionName]) {
+                    return;
+                }
+                if (permissionName === 'Account' && !isAdminGroup) {
                     return;
                 }
                 const token = PERMISSION_TO_AUTHORITY_TOKEN[permissionName];

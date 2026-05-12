@@ -40,7 +40,6 @@ const GROUP_PERMISSION_SECTIONS = {
     items: [
       { label: "System", token: "AuthSysCfg" },
       { label: "Event", token: "AuthEventCfg" },
-      { label: "Account", token: "AuthUserMag" },
       { label: "Storage", token: "AuthStoreCfg" },
       { label: "Network", token: "AuthNetCfg" },
       { label: "Security", token: "AuthSecurity" },
@@ -80,45 +79,37 @@ function parseAuthorityValues(authorityText) {
 
 function setAuthorityValue(currentValue, token, checked) {
   const values = parseAuthorityValues(currentValue);
-  const preserved = values.filter(
-    (entry) => !AUTHORITY_OPTIONS.some((option) => option.value === entry),
-  );
-  const optionValues = new Set(
-    values.filter((entry) =>
-      AUTHORITY_OPTIONS.some((option) => option.value === entry),
-    ),
-  );
-
+  
   if (checked) {
-    optionValues.add(token);
+    // Add token if not already present
+    if (!values.includes(token)) {
+      values.push(token);
+    }
   } else {
-    optionValues.delete(token);
+    // Remove token
+    const index = values.indexOf(token);
+    if (index > -1) {
+      values.splice(index, 1);
+    }
   }
-
-  return [
-    ...preserved,
-    ...AUTHORITY_OPTIONS.map((option) => option.value).filter((entry) =>
-      optionValues.has(entry),
-    ),
-  ].join(",");
+  
+  return values.join(",");
 }
 
 function setAuthorityValues(currentValue, tokens, checked) {
   const values = parseAuthorityValues(currentValue);
-  const preserved = values.filter((entry) => !tokens.includes(entry));
-  const tokenSet = new Set(values.filter((entry) => tokens.includes(entry)));
-
-  tokens.forEach((token) => {
-    if (checked) {
-      tokenSet.add(token);
-    } else {
-      tokenSet.delete(token);
-    }
-  });
-
-  return [...preserved, ...tokens.filter((entry) => tokenSet.has(entry))].join(
-    ",",
-  );
+  const tokenSet = new Set(tokens);
+  
+  // Filter out tokens we're setting
+  const preserved = values.filter((entry) => !tokenSet.has(entry));
+  
+  if (checked) {
+    // Add all tokens
+    return [...preserved, ...tokens].join(",");
+  } else {
+    // Remove all tokens - preserved already has non-matching entries
+    return preserved.join(",");
+  }
 }
 
 const UserManagement = () => {
@@ -335,8 +326,18 @@ const UserManagement = () => {
           }
         : null;
 
+  const isAdminGroup =
+    String(groupFormData?.name || selectedGroup || "")
+      .trim()
+      .toLowerCase() === "admin";
+
+  const getVisibleSectionItems = (sectionKey) =>
+    GROUP_PERMISSION_SECTIONS[sectionKey].items.filter(
+      (item) => item.token !== "AuthUserMag" || isAdminGroup,
+    );
+
   const getSectionTokens = (sectionKey) =>
-    GROUP_PERMISSION_SECTIONS[sectionKey].items.map((item) => item.token);
+    getVisibleSectionItems(sectionKey).map((item) => item.token);
   const areSectionTokensChecked = (sectionKey) =>
     getSectionTokens(sectionKey).every((token) =>
       selectedGroupAuthorities.includes(token),
@@ -375,9 +376,6 @@ const UserManagement = () => {
     }
     if (typeof setAddUserConfirmPassword === "function") {
       setAddUserConfirmPassword("");
-    } else {
-      // eslint-disable-next-line no-console
-      console.warn("setAddUserConfirmPassword is not a function");
     }
   }, [isAddOpen, setAddUserConfirmPassword]);
 
@@ -1942,7 +1940,7 @@ const UserManagement = () => {
                                 />
                                 Select All
                               </label>
-                              {section.items.map((item) => {
+                              {getVisibleSectionItems(sectionKey).map((item) => {
                                 const checked =
                                   selectedGroupAuthorities.includes(item.token);
                                 return (
@@ -2336,9 +2334,6 @@ const UserManagement = () => {
                     onChange={(event) => {
                       if (typeof setAddUserConfirmPassword === 'function') {
                         setAddUserConfirmPassword(event.target.value);
-                      } else {
-                        // eslint-disable-next-line no-console
-                        console.warn('setAddUserConfirmPassword is not a function');
                       }
                     }}
                     placeholder="confirm password"

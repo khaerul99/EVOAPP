@@ -166,17 +166,7 @@ export function useCameraManagement() {
 
     const loadCameras = useCallback(async () => {
         try {
-            const normalizedRows = await fetchCameras();
-
-            normalizedRows.forEach((row, idx) => {
-                console.log(`[useCameraManagement.loadCameras] Row ${idx}:`, {
-                    id: row.id,
-                    name: row.name,
-                    status: row.status,
-                    record: row.record,
-                    ip: row.ip,
-                });
-            });
+            await fetchCameras();
 
             setError('');
             setIsDigestRetrying(false);
@@ -303,7 +293,7 @@ export function useCameraManagement() {
             resolvedChannelNumber = Number(newCamera.channelIndex) || Number(firstEmptyChannelIndex) || 1;
         }
 
-        const payload = {
+        return {
             channelNumber: resolvedChannelNumber,
             ipAddress: newCamera.ipAddress,
             port: newCamera.tcpPort,
@@ -311,9 +301,6 @@ export function useCameraManagement() {
             password: newCamera.password,
             protocol: newCamera.manufacturer,
         };
-        
-        console.log('[useCameraManagement] getAddDevicePayload result:', payload);
-        return payload;
     }, [firstEmptyChannelIndex, newCamera]);
 
     const getBatchAddPayloads = useCallback(() => {
@@ -335,7 +322,6 @@ export function useCameraManagement() {
 
         try {
             const payload = newCamera.type === 'batchAdd' ? getBatchAddPayloads() : getAddDevicePayload();
-            console.log('[useCameraManagement] handleAddSubmit payload:', payload);
             
             if (newCamera.type === 'batchAdd') {
                 await cameraService.addCameraDevices({ devices: payload });
@@ -343,20 +329,12 @@ export function useCameraManagement() {
                 await cameraService.addRemoteDevice(payload);
             }
             
-            // Give NVR time to initialize the new device
-            console.log('[useCameraManagement] Waiting for device initialization...');
             await new Promise(resolve => setTimeout(resolve, 1500));
             
-            // Refresh camera list with fresh authentication
             await loadCameras();
             closeAddPopup();
             setCurrentPage(1);
         } catch (error) {
-            console.error('[useCameraManagement] handleAddSubmit error:', {
-                status: error?.response?.status,
-                message: error?.message,
-                response: error?.response?.data,
-            });
             const errorMessage = error?.response?.status === 401 
                 ? 'Autentikasi gagal (401). Coba refresh halaman atau login ulang.'
                 : 'Gagal menambahkan device ke perangkat. Cek kembali endpoint dan kredensial kamera.';

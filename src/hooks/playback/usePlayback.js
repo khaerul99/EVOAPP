@@ -3,6 +3,8 @@ import { useLocation } from 'react-router-dom';
 import Hls from 'hls.js';
 import { cameraService } from '../../services/camera/camera.service';
 import { playbackService } from '../../services/playback/playback.service';
+import { authStore } from '../../stores/authSlice';
+import { filterChannelsByAction } from '../../lib/role-helper';
 
 function toLocalDateInputValue(date) {
     const value = new Date(date);
@@ -154,15 +156,23 @@ export function usePlayback() {
                     (channel) => String(channel?.status || '').toLowerCase() === 'online',
                 );
 
-                setChannels(activeRows);
-                if (activeRows.length > 0) {
+                // Apply permission filter for Playback view
+                const authState = authStore.getState();
+                const permitted = filterChannelsByAction(activeRows, authState, 'Playback');
+
+                setChannels(permitted);
+                if (permitted.length > 0) {
                     setForm((previous) => ({
                         ...previous,
-                        channel: String(activeRows[0].id || 1),
+                        channel: String(permitted[0].id || 1),
                     }));
                     setError('');
                 } else {
-                    setError('Tidak ada channel/device yang aktif saat ini.');
+                    setForm((previous) => ({
+                        ...previous,
+                        channel: '',
+                    }));
+                    setError('Tidak ada channel/device yang aktif atau diizinkan untuk akun ini.');
                 }
             } catch {
                 if (!cancelled) {
@@ -190,16 +200,9 @@ export function usePlayback() {
     );
 
     const channelOptions = useMemo(() => {
-        if (channels.length > 0) {
-            return channels.map((channel) => ({
-                id: String(channel.id),
-                label: `${channel.id}. ${channel.channelName || channel.name}`,
-            }));
-        }
-
-        return Array.from({ length: 16 }, (_, index) => ({
-            id: String(index + 1),
-            label: `${index + 1}. Channel ${index + 1}`,
+        return channels.map((channel) => ({
+            id: String(channel.id),
+            label: `${channel.id}. ${channel.channelName || channel.name}`,
         }));
     }, [channels]);
 
