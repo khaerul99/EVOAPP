@@ -1,3 +1,5 @@
+import AxiosDigest from 'axios-digest'
+import axios from 'axios'
 import { computeDigestSecret } from './auth-helper'
 import {
     canSignWithDigest,
@@ -7,6 +9,70 @@ import {
     shouldSkipDigestRetry,
 } from './digest-auth'
 import { authStore } from '../stores/authSlice'
+
+function pickDigestPassword(authState) {
+    return String(authState?.runtimeRtspPassword || '').trim()
+}
+
+function cloneHeaders(headers) {
+    return {
+        ...(headers || {}),
+    }
+}
+
+function normalizeDigestChallengeHeaders(headers = {}) {
+    const nextHeaders = cloneHeaders(headers)
+    const digestChallenge = nextHeaders['www-authenticate']
+        || nextHeaders['WWW-Authenticate']
+        || nextHeaders['x-www-authenticate']
+        || nextHeaders['X-WWW-Authenticate']
+        || nextHeaders['X-Www-Authenticate']
+
+    if (digestChallenge && !nextHeaders['www-authenticate']) {
+        nextHeaders['www-authenticate'] = digestChallenge
+    }
+
+    return nextHeaders
+}
+
+async function retryWithAxiosDigest(originalConfig, authState) {
+    const username = String(authState?.auth?.username || '').trim()
+    const password = pickDigestPassword(authState)
+    if (!username || !password) {
+        return null
+    }
+
+    const axiosInstance = axios.create()
+    axiosInstance.interceptors.response.use(
+        (response) => response,
+        (requestError) => {
+            if (requestError?.response?.headers) {
+                requestError.response.headers = normalizeDigestChallengeHeaders(requestError.response.headers)
+            }
+            return Promise.reject(requestError)
+        },
+    )
+
+    const digestClient = new AxiosDigest(username, password, axiosInstance)
+    const method = String(originalConfig?.method || 'get').toLowerCase()
+    const requestConfig = {
+        ...originalConfig,
+        headers: normalizeDigestChallengeHeaders(originalConfig?.headers || {}),
+        __skipDigestSign: true,
+        __noRetry: true,
+        __digestRetryCount: Number(originalConfig?.__digestRetryCount || 0) + 1,
+    }
+
+    if (method === 'get' || method === 'delete' || method === 'head') {
+        return digestClient[method](originalConfig.url, requestConfig)
+    }
+
+    if (method === 'post' || method === 'put' || method === 'patch') {
+        return digestClient[method](originalConfig.url, originalConfig.data, requestConfig)
+    }
+
+    return null
+}
 
 function routeRequestThroughProxy(config) {
     if (!import.meta.env.PROD) {
@@ -105,6 +171,22 @@ export function setupInterceptors(ApiClient) {
             const refreshedState = authStore.getState()
             if (!canSignWithDigest(refreshedState)) {
                 throw error
+            }
+
+            try {
+                const digestResponse = await retryWithAxiosDigest(
+                    routeRequestThroughProxy({
+                        ...originalConfig,
+                        __digestRetryCount: retryCount,
+                    }),
+                    refreshedState,
+                )
+
+                if (digestResponse) {
+                    return digestResponse
+                }
+            } catch {
+                // Fallback ke signer digest berbasis CryptoJS jika wrapper axios-digest gagal.
             }
 
             const retriedConfig = signRequestWithDigest(
