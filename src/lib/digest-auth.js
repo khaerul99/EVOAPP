@@ -66,13 +66,13 @@ function stringifyRequestBody(data) {
 }
 
 function buildDigestUri(url, params) {
-    if (params && typeof params === 'object' && params.__path) {
-        const rawPath = String(params.__path || '').trim().replace(/^\/+/, '')
+    if (params && typeof params === 'object' && (params.__path || params._path)) {
+        const rawPath = String(params.__path || params._path || '').trim().replace(/^\/+/, '')
         const digestPath = rawPath ? `/${rawPath}` : '/'
 
         const searchParams = new URLSearchParams()
         Object.entries(params).forEach(([key, value]) => {
-            if (key === '__path' || value === undefined || value === null) {
+            if (key === '__path' || key === '_path' || value === undefined || value === null) {
                 return
             }
 

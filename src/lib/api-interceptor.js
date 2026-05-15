@@ -89,6 +89,7 @@ function routeRequestThroughProxy(config) {
     const nextParams = {
         ...(config.params || {}),
         __path: requestPath,
+        _path: requestPath,
     }
 
     parsed.searchParams.forEach((value, key) => {
