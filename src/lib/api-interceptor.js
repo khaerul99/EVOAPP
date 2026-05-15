@@ -9,6 +9,7 @@ import {
     shouldSkipDigestRetry,
 } from './digest-auth'
 import { authStore } from '../stores/authSlice'
+import { clearSession } from './session-helper'
 
 function pickDigestPassword(authState) {
     return String(authState?.runtimeRtspPassword || '').trim()
@@ -160,6 +161,23 @@ export function setupInterceptors(ApiClient) {
             const retryCount = Number(originalConfig.__digestRetryCount || 0)
             const maxRetry = 1
             if (retryCount >= maxRetry) {
+                // If we've exhausted digest retry attempts, treat as unrecoverable.
+                // Clear session and notify the UI via a global event so the app can
+                // show a login modal or redirect after in-flight requests finish.
+                try {
+                    const urlStr = String(originalConfig?.url || '')
+                    const isInternalProbe = urlStr.startsWith('/api/auth-probe') || urlStr.startsWith('/api/proxy')
+                    if (typeof window !== 'undefined' && !isInternalProbe) {
+                        clearSession()
+                        try {
+                            window.dispatchEvent(new CustomEvent('evosecure:auth-expired', { detail: { reason: '401-exhausted' } }))
+                        } catch {
+                            // Fallback: set a simple flag on window
+                            try { window.__evosecure_auth_expired = true } catch {}
+                        }
+                    }
+                } catch {}
+
                 throw error
             }
 

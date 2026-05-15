@@ -1,4 +1,5 @@
 import ApiClient from '../../lib/api';
+import { withDigestLock } from '../../lib/digest-lock';
 
 class PermissionService {
     toLegacyAuthorityToken(token) {
@@ -414,7 +415,7 @@ class PermissionService {
         // Auth handled via digest header, not in request body.
         for (let i = 0; i < requestBodyVariants.length; i += 1) {
             try {
-                const response = await ApiClient.post('/cgi-bin/api/userManager/modifyGroup', requestBodyVariants[i]);
+                const response = await withDigestLock(() => ApiClient.post('/cgi-bin/api/userManager/modifyGroup', requestBodyVariants[i]));
                 const parsed = this.parseModifyResponse(response?.data);
                 if (parsed) {
                     return true;

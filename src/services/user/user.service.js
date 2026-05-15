@@ -1,5 +1,6 @@
 import ApiClient from "../../lib/api";
 import { authStore } from "../../stores/authSlice";
+import { withDigestLock } from "../../lib/digest-lock";
 import { loginWithDigest } from "../auth/auth.service";
 import {
   buildDigestAuthorizationHeader,
@@ -791,10 +792,10 @@ export const userService = {
     }
 
     try {
-      const response = await ApiClient.post(
+      const response = await withDigestLock(() => ApiClient.post(
         "/cgi-bin/api/userManager/addGroup",
         apiRequestBody,
-      );
+      ));
       console.log("[userService] addGroup response (API):", response?.data);
       return response?.data;
     } catch (error) {
@@ -861,10 +862,10 @@ export const userService = {
       requestBody.managerPwd = password;
     }
 
-    const response = await ApiClient.post(
+    const response = await withDigestLock(() => ApiClient.post(
       "/cgi-bin/api/userManager/deleteGroup",
       requestBody,
-    );
+    ));
     return response?.data;
   },
 
@@ -908,10 +909,10 @@ export const userService = {
       requestBody,
     });
 
-    const response = await ApiClient.post(
+    const response = await withDigestLock(() => ApiClient.post(
       "/cgi-bin/api/userManager/modifyGroup",
       requestBody,
-    );
+    ));
 
     console.log("[userService] modifyGroup response:", response?.data);
 
