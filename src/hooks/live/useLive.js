@@ -68,6 +68,8 @@ export function useLive() {
     const detectionFailureCountRef = useRef(0);
     const detectionLastFetchAtRef = useRef(0);
     const detectionConsecutive401Ref = useRef(0);
+    const detectionCropSemaphoreRef = useRef(0);
+    const MAX_CONCURRENT_CROPS = 3;
 
     useEffect(() => {
         if (authCooldownEndsAt <= 0) {
@@ -497,8 +499,8 @@ export function useLive() {
 
         const fetchDetections = async () => {
             const now = Date.now();
-            if (now - detectionLastFetchAtRef.current < 5000) {
-                scheduleNext(5000);
+            if (now - detectionLastFetchAtRef.current < 10000) {
+                scheduleNext(10000);
                 return;
             }
             if (document.hidden) {
@@ -551,15 +553,39 @@ export function useLive() {
                 if (hasNewEvents) {
                     channelSnapshotBlob = await liveDetectionService.fetchChannelSnapshot(channelId);
                 }
-                const withThumbs = await Promise.all(mapped.map(async (eventItem) => {
-                    const cacheKey = eventItem.id;
-                    if (detectionThumbRef.current.has(cacheKey)) {
-                        return { ...eventItem, thumbUrl: detectionThumbRef.current.get(cacheKey) };
-                    }
-                    if (!channelSnapshotBlob) return eventItem;
-                    try {
-                        const cropped = eventItem.boundingBox
-                            ? await liveDetectionService.cropSnapshotByBoundingBox(
+                const withThumbs = await (async () => {
+                    const results = [];
+                    for (let i = 0; i < mapped.length; i += 1) {
+                        const eventItem = mapped[i];
+                        const cacheKey = eventItem.id;
+                        if (detectionThumbRef.current.has(cacheKey)) {
+                            results.push({ ...eventItem, thumbUrl: detectionThumbRef.current.get(cacheKey) });
+                            continue;
+                        }
+                        if (i >= 5) {
+                            results.push(eventItem);
+                            continue;
+                        }
+                        if (!channelSnapshotBlob || !eventItem.boundingBox) {
+                            if (eventItem.humanImageBlob) {
+                                try {
+                                    const blobUrl = URL.createObjectURL(eventItem.humanImageBlob);
+                                    detectionThumbRef.current.set(cacheKey, blobUrl);
+                                    results.push({ ...eventItem, thumbUrl: blobUrl });
+                                } catch {
+                                    results.push(eventItem);
+                                }
+                            } else {
+                                results.push(eventItem);
+                            }
+                            continue;
+                        }
+                        while (detectionCropSemaphoreRef.current >= MAX_CONCURRENT_CROPS) {
+                            await new Promise((res) => setTimeout(res, 10));
+                        }
+                        detectionCropSemaphoreRef.current += 1;
+                        try {
+                            const cropped = await liveDetectionService.cropSnapshotByBoundingBox(
                                 channelSnapshotBlob,
                                 eventItem.boundingBox,
                                 {
@@ -567,16 +593,29 @@ export function useLive() {
                                     sceneHeight: eventItem.sceneHeight,
                                     boundingScale: eventItem.boundingScale,
                                 },
-                            )
-                            : null;
-                        const blob = cropped || channelSnapshotBlob;
-                        const blobUrl = URL.createObjectURL(blob);
-                        detectionThumbRef.current.set(cacheKey, blobUrl);
-                        return { ...eventItem, thumbUrl: blobUrl };
-                    } catch {
-                        return eventItem;
+                            );
+                            const blob = cropped || channelSnapshotBlob;
+                            const blobUrl = URL.createObjectURL(blob);
+                            detectionThumbRef.current.set(cacheKey, blobUrl);
+                            results.push({ ...eventItem, thumbUrl: blobUrl });
+                        } catch {
+                            if (eventItem.humanImageBlob) {
+                                try {
+                                    const blobUrl = URL.createObjectURL(eventItem.humanImageBlob);
+                                    detectionThumbRef.current.set(cacheKey, blobUrl);
+                                    results.push({ ...eventItem, thumbUrl: blobUrl });
+                                } catch {
+                                    results.push(eventItem);
+                                }
+                            } else {
+                                results.push(eventItem);
+                            }
+                        } finally {
+                            detectionCropSemaphoreRef.current = Math.max(0, detectionCropSemaphoreRef.current - 1);
+                        }
                     }
-                }));
+                    return results;
+                })();
 
                 const seen = new Set(detectionHistoryRef.current.map((item) => item.id));
                 const appended = withThumbs.filter((item) => !seen.has(item.id));
@@ -585,7 +624,7 @@ export function useLive() {
                 setDetectionError('');
                 detectionFailureCountRef.current = 0;
                 detectionConsecutive401Ref.current = 0;
-                scheduleNext(hasNewEvents ? 5000 : 7000);
+                scheduleNext(hasNewEvents ? 10000 : 12000);
             } catch (err) {
                 if (!cancelled) {
                     const statusCode = Number(err?.response?.status || 0);

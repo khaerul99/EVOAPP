@@ -87,6 +87,25 @@ function parseAttachEntriesFromRaw(rawText) {
     return out;
 }
 
+function extractHumanImage(data = {}) {
+    const human = data?.HumanAttributes || {};
+    const imageData = human?.HumanImage || data?.HumanImage;
+    if (!imageData) return null;
+    const base64Str = String(imageData || '').trim();
+    if (!base64Str || base64Str.length < 10) return null;
+    try {
+        const byteCharacters = atob(base64Str);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i += 1) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        return new Blob([byteArray], { type: 'image/jpeg' });
+    } catch {
+        return null;
+    }
+}
+
 function parseHumanTraits(human = {}, fields = {}) {
     const coatType = Number.parseInt(String(human?.CoatType ?? fields['Data.HumanAttributes.CoatType'] ?? ''), 10);
     const trousersType = Number.parseInt(String(human?.TrousersType ?? fields['Data.HumanAttributes.TrousersType'] ?? ''), 10);
@@ -150,6 +169,7 @@ function mapEventEntriesToCards(entries, channelId, fetchedAt, rawText = '') {
             const sceneHeight = Number.parseInt(String(data?.SceneImage?.Height ?? ''), 10) || 0;
             const box = pickBestBoundingBox(code, human, vehicle, fields, objectRect);
             const boundingScale = resolveBoundingScale(data);
+            const humanImageBlob = extractHumanImage(data);
 
             return {
                 id: `${channelId}-${code}-${data?.LocaleTime || fetchedAt || Date.now()}-${index}`,
@@ -161,6 +181,7 @@ function mapEventEntriesToCards(entries, channelId, fetchedAt, rawText = '') {
                 sceneWidth,
                 sceneHeight,
                 boundingScale,
+                humanImageBlob,
             };
         });
 }
@@ -268,4 +289,5 @@ export const liveDetectionService = Object.freeze({
     mapEventEntriesToCards,
     fetchChannelSnapshot,
     cropSnapshotByBoundingBox,
+    extractHumanImage,
 });
