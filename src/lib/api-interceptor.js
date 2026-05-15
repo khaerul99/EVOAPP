@@ -117,13 +117,18 @@ function signRequestWithDigest(config, authState) {
 
 export function setupInterceptors(ApiClient) {
     ApiClient.interceptors.request.use((config) => {
-        if (config?.__skipDigestSign) {
-            return config
+        // Route the request through proxy first so the params (`__path` / `_path`) are present
+        // then sign the routed config with digest so the `uri` used in the signature
+        // matches the actual proxied camera target (including query string).
+        const routed = routeRequestThroughProxy(config)
+
+        if (routed?.__skipDigestSign) {
+            return routed
         }
 
         const authState = authStore.getState()
-        const signed = signRequestWithDigest(config, authState)
-        return routeRequestThroughProxy(signed)
+        const signed = signRequestWithDigest(routed, authState)
+        return signed
     })
 
     ApiClient.interceptors.response.use(
