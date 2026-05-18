@@ -10,6 +10,7 @@ import {
 } from './digest-auth'
 import { authStore } from '../stores/authSlice'
 import { clearSession } from './session-helper'
+import { AUTH_PROBE_DIGEST_URI } from './api-config'
 
 function pickDigestPassword(authState) {
     return String(authState?.runtimeRtspPassword || '').trim()
@@ -116,6 +117,21 @@ function signRequestWithDigest(config, authState) {
     return result.config
 }
 
+function shouldForceLogoutForRequest(config = {}) {
+    const urlStr = String(config?.url || '').toLowerCase()
+    if (urlStr.startsWith('/api/auth-probe')) {
+        return true
+    }
+
+    const rawPath = String(config?.params?.__path || config?.params?._path || '').trim()
+    if (!rawPath) {
+        return false
+    }
+
+    const normalizedPath = `/${rawPath.replace(/^\/+/, '')}`.toLowerCase()
+    return normalizedPath === String(AUTH_PROBE_DIGEST_URI || '').toLowerCase()
+}
+
 export function setupInterceptors(ApiClient) {
     ApiClient.interceptors.request.use((config) => {
         // Route the request through proxy first so the params (`__path` / `_path`) are present
@@ -161,18 +177,14 @@ export function setupInterceptors(ApiClient) {
             const retryCount = Number(originalConfig.__digestRetryCount || 0)
             const maxRetry = 1
             if (retryCount >= maxRetry) {
-                // If we've exhausted digest retry attempts, treat as unrecoverable.
-                // Clear session and notify the UI via a global event so the app can
-                // show a login modal or redirect after in-flight requests finish.
+                // Do not force global logout for every 401.
+                // Only auth-probe failures are considered session-expired signals.
                 try {
-                    const urlStr = String(originalConfig?.url || '')
-                    const isInternalProbe = urlStr.startsWith('/api/auth-probe') || urlStr.startsWith('/api/proxy')
-                    if (typeof window !== 'undefined' && !isInternalProbe) {
+                    if (typeof window !== 'undefined' && shouldForceLogoutForRequest(originalConfig)) {
                         clearSession()
                         try {
                             window.dispatchEvent(new CustomEvent('evosecure:auth-expired', { detail: { reason: '401-exhausted' } }))
                         } catch {
-                            // Fallback: set a simple flag on window
                             try { window.__evosecure_auth_expired = true } catch {}
                         }
                     }

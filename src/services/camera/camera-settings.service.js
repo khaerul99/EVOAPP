@@ -851,6 +851,78 @@ function extractRawEventDataFromError(error) {
 }
 
 export const cameraSettingsService = {
+  getSmartMotionConfig: async (channelId = 1) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Math.max(cleanId - 1, 0);
+    await warmupDigestChallenge();
+    const response = await ApiClient.get("/cgi-bin/configManager.cgi?action=getConfig&name=SmartMotionDetect");
+    const normalized = normalizeDahuaConfigMap(response?.data);
+
+    return {
+      channelId: cleanId,
+      channelIndex,
+      enabled: toBoolean(normalized[`SmartMotionDetect[${channelIndex}].Enable`]),
+      sensitivity: String(normalized[`SmartMotionDetect[${channelIndex}].Sensitivity`] || ""),
+      objectTypes: {
+        human: toBoolean(normalized[`SmartMotionDetect[${channelIndex}].ObjectTypes.Human`]),
+        vehicle: toBoolean(normalized[`SmartMotionDetect[${channelIndex}].ObjectTypes.Vehicle`]),
+      },
+      raw: normalized,
+    };
+  },
+
+  setSmartMotionEnable: async ({
+    channelId,
+    enabled,
+    channelIndexOverride = null,
+  }) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Number.isFinite(Number(channelIndexOverride))
+      ? Math.max(Number(channelIndexOverride), 0)
+      : Math.max(cleanId - 1, 0);
+    const nextValue = enabled ? "true" : "false";
+    const query = buildConfigManagerQuery({
+      action: "setConfig",
+      name: "SmartMotionDetect",
+      [`SmartMotionDetect[${channelIndex}].Enable`]: nextValue,
+    });
+
+    await warmupDigestChallenge();
+    const response = await ApiClient.get(`/cgi-bin/configManager.cgi?${query}`);
+    return response?.data;
+  },
+
+  setSmartMotionConfig: async ({
+    channelId,
+    channelIndexOverride = null,
+    enabled,
+    sensitivity,
+    objectTypes,
+  }) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Number.isFinite(Number(channelIndexOverride))
+      ? Math.max(Number(channelIndexOverride), 0)
+      : Math.max(cleanId - 1, 0);
+
+    const normalizedSensitivity = ["Low", "Middle", "High"].includes(String(sensitivity || ""))
+      ? String(sensitivity)
+      : "Middle";
+
+    const params = {
+      action: "setConfig",
+      name: "SmartMotionDetect",
+      [`SmartMotionDetect[${channelIndex}].Enable`]: enabled ? "true" : "false",
+      [`SmartMotionDetect[${channelIndex}].Sensitivity`]: normalizedSensitivity,
+      [`SmartMotionDetect[${channelIndex}].ObjectTypes.Human`]: objectTypes?.human ? "true" : "false",
+      [`SmartMotionDetect[${channelIndex}].ObjectTypes.Vehicle`]: objectTypes?.vehicle ? "true" : "false",
+    };
+
+    const query = buildConfigManagerQuery(params);
+    await warmupDigestChallenge();
+    const response = await ApiClient.get(`/cgi-bin/configManager.cgi?${query}`);
+    return response?.data;
+  },
+
   getRealtimeEventStatus: async ({ channelId, eventCodes = [], strictChannel = false }) => {
     const channelCandidates = (strictChannel
       ? [Number(channelId)]

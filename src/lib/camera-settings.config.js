@@ -49,7 +49,7 @@ export const MENU_CONFIG = [
         key: 'smartMotion',
         title: 'Smart Motion (SMD)',
         subtitle: 'SmartMotionHuman, SmartMotionVehicle',
-        endpoint: EVENT_ENDPOINT,
+        endpoint: CONFIG_ENDPOINT,
         eventCodes: ['SmartMotionHuman', 'SmartMotionVehicle'],
         dataRows: [
             { key: 'smartMotionHuman', label: 'SmartMotionHuman', eventCode: 'SmartMotionHuman' },

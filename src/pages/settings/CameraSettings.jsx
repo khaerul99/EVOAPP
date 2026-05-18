@@ -19,18 +19,6 @@ function Switch({ checked, onChange }) {
   );
 }
 
-function ModeTab({ label, active, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-xl border px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${active ? "border-navy bg-navy text-white" : "border-navy/15 bg-white text-navy/60 hover:bg-slate-50"}`}
-    >
-      {label}
-    </button>
-  );
-}
-
 const CameraSettings = () => {
   const activeChannel = useStore((state) => state.activeChannel);
   const onlineChannels = useStore((state) => state.onlineChannels);
@@ -43,7 +31,6 @@ const CameraSettings = () => {
   const setActiveMenu = useStore((state) => state.setActiveMenu);
   const startRealtimePolling = useStore((state) => state.startRealtimePolling);
   const stopRealtimePolling = useStore((state) => state.stopRealtimePolling);
-  const [activeMode, setActiveMode] = useState("data");
   const [peopleTab, setPeopleTab] = useState("People Counting");
   const [peopleConfig, setPeopleConfig] = useState({
     channelIndex: 0,
@@ -57,6 +44,25 @@ const CameraSettings = () => {
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleError, setPeopleError] = useState("");
   const [addRuleOpen, setAddRuleOpen] = useState(false);
+  const [smartMotionConfig, setSmartMotionConfig] = useState({
+    channelIndex: 0,
+    enabled: false,
+    sensitivity: "",
+    objectTypes: {
+      human: false,
+      vehicle: false,
+    },
+  });
+  const [smartMotionLoading, setSmartMotionLoading] = useState(false);
+  const [smartMotionError, setSmartMotionError] = useState("");
+  const [smartMotionDraft, setSmartMotionDraft] = useState({
+    enabled: false,
+    sensitivity: "Middle",
+    objectTypes: {
+      human: false,
+      vehicle: false,
+    },
+  });
   const channelIsSelected = Boolean(activeChannel);
 
   useEffect(() => {
@@ -159,6 +165,53 @@ const CameraSettings = () => {
     }
     reloadPeopleConfig({ showLoading: true });
   }, [activeChannel, activeConfig, channelIsSelected, reloadPeopleConfig]);
+
+  const reloadSmartMotionConfig = useCallback(async ({ showLoading = true } = {}) => {
+    if (!channelIsSelected || activeConfig?.key !== "smartMotion") {
+      return;
+    }
+    const channelNumber =
+      parseInt(String(activeChannel).replace(/\D/g, "")) || 1;
+    if (showLoading) {
+      setSmartMotionLoading(true);
+    }
+    try {
+      const result = await cameraSettingsService.getSmartMotionConfig(channelNumber);
+      setSmartMotionConfig({
+        channelIndex: Number.isFinite(Number(result?.channelIndex))
+          ? Number(result.channelIndex)
+          : Math.max(channelNumber - 1, 0),
+        enabled: Boolean(result?.enabled),
+        sensitivity: String(result?.sensitivity || ""),
+        objectTypes: {
+          human: Boolean(result?.objectTypes?.human),
+          vehicle: Boolean(result?.objectTypes?.vehicle),
+        },
+      });
+      setSmartMotionDraft({
+        enabled: Boolean(result?.enabled),
+        sensitivity: String(result?.sensitivity || "Middle"),
+        objectTypes: {
+          human: Boolean(result?.objectTypes?.human),
+          vehicle: Boolean(result?.objectTypes?.vehicle),
+        },
+      });
+      setSmartMotionError("");
+    } catch {
+      setSmartMotionError("Gagal mengambil config Smart Motion.");
+    } finally {
+      if (showLoading) {
+        setSmartMotionLoading(false);
+      }
+    }
+  }, [activeChannel, activeConfig?.key, channelIsSelected]);
+
+  useEffect(() => {
+    if (!channelIsSelected || activeConfig?.key !== "smartMotion") {
+      return;
+    }
+    reloadSmartMotionConfig({ showLoading: true });
+  }, [activeChannel, activeConfig?.key, channelIsSelected, reloadSmartMotionConfig]);
 
   const handleTogglePeopleEnable = async (nextValue) => {
     if (!channelIsSelected) {
@@ -265,6 +318,54 @@ const CameraSettings = () => {
     }
   };
 
+  const handleToggleSmartMotionEnable = async (nextValue) => {
+    setSmartMotionDraft((prev) => ({ ...prev, enabled: nextValue }));
+  };
+
+  const handleSaveSmartMotionConfig = async () => {
+    if (!channelIsSelected) {
+      return;
+    }
+    const channelNumber = Number(String(activeChannel).replace("ch", ""));
+    setSmartMotionLoading(true);
+    setSmartMotionError("");
+    try {
+      await cameraSettingsService.setSmartMotionConfig({
+        channelId: channelNumber,
+        channelIndexOverride: smartMotionConfig.channelIndex,
+        enabled: Boolean(smartMotionDraft.enabled),
+        sensitivity: smartMotionDraft.sensitivity,
+        objectTypes: smartMotionDraft.objectTypes,
+      });
+      await reloadSmartMotionConfig({ showLoading: false });
+    } catch {
+      setSmartMotionError("Gagal menyimpan config Smart Motion.");
+    } finally {
+      setSmartMotionLoading(false);
+    }
+  };
+
+  const handleCancelSmartMotionChanges = () => {
+    setSmartMotionDraft({
+      enabled: Boolean(smartMotionConfig.enabled),
+      sensitivity: String(smartMotionConfig.sensitivity || "Middle"),
+      objectTypes: {
+        human: Boolean(smartMotionConfig.objectTypes?.human),
+        vehicle: Boolean(smartMotionConfig.objectTypes?.vehicle),
+      },
+    });
+    setSmartMotionError("");
+  };
+
+  const isSmartMotionDirty = useMemo(() => {
+    return (
+      Boolean(smartMotionDraft.enabled) !== Boolean(smartMotionConfig.enabled)
+      || String(smartMotionDraft.sensitivity || "Middle") !== String(smartMotionConfig.sensitivity || "Middle")
+      || Boolean(smartMotionDraft.objectTypes?.human) !== Boolean(smartMotionConfig.objectTypes?.human)
+      || Boolean(smartMotionDraft.objectTypes?.vehicle) !== Boolean(smartMotionConfig.objectTypes?.vehicle)
+    );
+  }, [smartMotionDraft, smartMotionConfig]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -288,11 +389,15 @@ const CameraSettings = () => {
           <button
             type="button"
             onClick={() =>
-              activeConfig?.panelType === "peopleCounting" &&
-              reloadPeopleConfig()
+              activeConfig?.panelType === "peopleCounting"
+                ? reloadPeopleConfig()
+                : activeConfig?.key === "smartMotion"
+                  ? reloadSmartMotionConfig()
+                  : null
             }
             disabled={
-              !channelIsSelected || activeConfig?.panelType !== "peopleCounting"
+              !channelIsSelected
+              || (activeConfig?.panelType !== "peopleCounting" && activeConfig?.key !== "smartMotion")
             }
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold bg-white border rounded-xl border-navy/10 text-navy/75 hover:bg-slate-50"
           >
@@ -363,7 +468,7 @@ const CameraSettings = () => {
           </div>
         </aside>
 
-        <section className="p-5 bg-white border rounded-2xl border-navy/10">
+        <section className="relative pb-20 p-5 bg-white border rounded-2xl border-navy/10">
           {!channelIsSelected && (
             <div className="px-4 py-3 mb-4 text-sm font-semibold border rounded-xl border-amber-200 bg-amber-50 text-amber-700">
               Pilih channel terlebih dahulu untuk membuka pengaturan.
@@ -391,42 +496,11 @@ const CameraSettings = () => {
               </h2>
             </div>
 
-            <div className="flex items-center gap-2">
-              <ModeTab
-                label="Data"
-                active={activeMode === "data"}
-                onClick={() => channelIsSelected && setActiveMode("data")}
-              />
-              <ModeTab
-                label="Control"
-                active={activeMode === "control"}
-                onClick={() => channelIsSelected && setActiveMode("control")}
-              />
-            </div>
+            <div />
           </div>
 
-          <div className="px-4 py-3 mb-4 border rounded-xl border-navy/10 bg-slate-50">
-            <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">
-              Endpoint Utama
-            </p>
-            <p className="mt-1 font-mono text-xs font-semibold text-navy/80">
-              {activeConfig.endpoint}
-            </p>
-            {activeConfig?.panelType === "peopleCounting" &&
-              peopleConfig.sourceName && (
-                <p className="mt-1 font-mono text-[11px] font-semibold text-navy/55">
-                  source: {peopleConfig.sourceName} | idx:{" "}
-                  {peopleConfig.channelIndex}
-                </p>
-              )}
-            <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-navy/45">
-              Kode Event
-            </p>
-            <p className="mt-1 text-xs font-semibold text-navy/80">
-              {activeConfig.eventCodes.join(", ")}
-            </p>
-          </div>
-          {activeConfig?.panelType !== "peopleCounting" && (
+      
+          {activeConfig?.panelType !== "peopleCounting" && activeConfig?.key !== "smartMotion" && (
             <div className="px-4 py-3 mb-4 bg-white border rounded-xl border-navy/10">
               <p className="text-sm font-semibold text-navy/70">
                 Data menu ini hanya ditampilkan jika endpoint API tersedia.
@@ -437,7 +511,7 @@ const CameraSettings = () => {
             </div>
           )}
 
-          {activeConfig?.panelType !== "peopleCounting" && (
+          {activeConfig?.panelType !== "peopleCounting" && activeConfig?.key !== "smartMotion" && (
             <div className="flex items-center justify-between px-4 py-3 mb-4 border rounded-xl border-navy/10 bg-slate-50">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">
@@ -565,7 +639,7 @@ const CameraSettings = () => {
                             />
                             <button
                               type="button"
-                              className="text-navy/50 transition-colors hover:text-danger"
+                              className="transition-colors text-navy/50 hover:text-danger"
                               title="Delete rule"
                               onClick={() => handleDeletePeopleRule(rule)}
                             >
@@ -585,21 +659,126 @@ const CameraSettings = () => {
                 </p>
               )}
             </div>
+          ) : activeConfig?.key === "smartMotion" ? (
+            <div className="flex min-h-[360px] flex-col gap-4">
+              <div className="flex items-center justify-between px-4 py-3 border rounded-xl border-navy/10 bg-slate-50">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">
+                    Enable
+                  </p>
+                  <p className="text-sm font-semibold text-navy/70">
+                    SmartMotionDetect[{smartMotionConfig.channelIndex}].Enable
+                  </p>
+                </div>
+                <Switch
+                  checked={Boolean(smartMotionDraft.enabled)}
+                  onChange={handleToggleSmartMotionEnable}
+                />
+              </div>
+
+              <div className="px-4 py-4 space-y-4 bg-white border rounded-xl border-navy/10">
+                <div className="flex items-center gap-3">
+                  <p className="min-w-[120px] text-sm font-semibold text-navy/70">
+                    Effective Target
+                  </p>
+                  <label className="inline-flex items-center gap-2 text-sm font-semibold text-navy/80">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(smartMotionDraft.objectTypes.human)}
+                      onChange={(event) =>
+                        setSmartMotionDraft((prev) => ({
+                          ...prev,
+                          objectTypes: {
+                            ...prev.objectTypes,
+                            human: event.target.checked,
+                          },
+                        }))
+                      }
+                    />
+                    Human
+                  </label>
+                  <label className="inline-flex items-center gap-2 text-sm font-semibold text-navy/80">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(smartMotionDraft.objectTypes.vehicle)}
+                      onChange={(event) =>
+                        setSmartMotionDraft((prev) => ({
+                          ...prev,
+                          objectTypes: {
+                            ...prev.objectTypes,
+                            vehicle: event.target.checked,
+                          },
+                        }))
+                      }
+                    />
+                    Vehicle
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <p className="min-w-[120px] text-sm font-semibold text-navy/70">
+                    Sensitivity
+                  </p>
+                  <select
+                    value={smartMotionDraft.sensitivity || "Middle"}
+                    onChange={(event) =>
+                      setSmartMotionDraft((prev) => ({
+                        ...prev,
+                        sensitivity: event.target.value,
+                      }))
+                    }
+                    className="min-w-[200px] rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm font-semibold text-navy"
+                  >
+                    <option value="Low">Low</option>
+                    <option value="Middle">Medium</option>
+                    <option value="High">High</option>
+                  </select>
+                </div>
+
+                
+              </div>
+
+              {smartMotionLoading && (
+                <p className="text-sm font-semibold text-navy/55">
+                  Sinkronisasi Smart Motion...
+                </p>
+              )}
+              {smartMotionError && (
+                <p className="text-sm font-semibold text-danger">
+                  {smartMotionError}
+                </p>
+              )}
+
+              
+            </div>
           ) : (
             <div className="space-y-2">
-              {activeMode === "data" && (
-                <p className="px-4 py-3 text-sm font-semibold border rounded-xl border-navy/10 bg-slate-50 text-navy/60">
-                  Data API untuk menu ini belum diimplementasikan.
-                </p>
-              )}
-              {activeMode === "control" && (
-                <p className="px-4 py-3 text-sm font-semibold border rounded-xl border-navy/10 bg-slate-50 text-navy/60">
-                  Control API untuk menu ini belum diimplementasikan.
-                </p>
-              )}
+              <p className="px-4 py-3 text-sm font-semibold border rounded-xl border-navy/10 bg-slate-50 text-navy/60">
+                API menu ini belum diimplementasikan.
+              </p>
             </div>
           )}
+
+          <div className={`absolute bottom-5 right-5 flex justify-end gap-2 ${activeConfig?.key === "smartMotion" ? "" : "hidden"}`}>
+                <button
+                  type="button"
+                  onClick={handleCancelSmartMotionChanges}
+                  disabled={smartMotionLoading || !isSmartMotionDirty}
+                  className="px-4 py-2 text-sm font-bold border rounded-lg border-navy/20 text-navy/70 disabled:opacity-60"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSmartMotionConfig}
+                  disabled={smartMotionLoading || !isSmartMotionDirty}
+                  className="px-4 py-2 text-sm font-bold text-white rounded-lg bg-sky-600 disabled:opacity-60"
+                >
+                  Save
+                </button>
+              </div>
         </section>
+        
       </div>
     </div>
   );
