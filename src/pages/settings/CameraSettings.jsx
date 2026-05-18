@@ -63,6 +63,15 @@ const CameraSettings = () => {
       vehicle: false,
     },
   });
+  const [motionDetectionConfig, setMotionDetectionConfig] = useState({
+    channelIndex: 0,
+    enabled: false,
+  });
+  const [motionDetectionDraft, setMotionDetectionDraft] = useState({
+    enabled: false,
+  });
+  const [motionDetectionLoading, setMotionDetectionLoading] = useState(false);
+  const [motionDetectionError, setMotionDetectionError] = useState("");
   const channelIsSelected = Boolean(activeChannel);
 
   useEffect(() => {
@@ -212,6 +221,42 @@ const CameraSettings = () => {
     }
     reloadSmartMotionConfig({ showLoading: true });
   }, [activeChannel, activeConfig?.key, channelIsSelected, reloadSmartMotionConfig]);
+
+  const reloadMotionDetectionConfig = useCallback(async ({ showLoading = true } = {}) => {
+    if (!channelIsSelected || activeConfig?.key !== "motionDetection") {
+      return;
+    }
+    const channelNumber = parseInt(String(activeChannel).replace(/\D/g, ""), 10) || 1;
+    if (showLoading) {
+      setMotionDetectionLoading(true);
+    }
+    try {
+      const result = await cameraSettingsService.getMotionDetectConfig(channelNumber);
+      setMotionDetectionConfig({
+        channelIndex: Number.isFinite(Number(result?.channelIndex))
+          ? Number(result.channelIndex)
+          : Math.max(channelNumber - 1, 0),
+        enabled: Boolean(result?.enabled),
+      });
+      setMotionDetectionDraft({
+        enabled: Boolean(result?.enabled),
+      });
+      setMotionDetectionError("");
+    } catch {
+      setMotionDetectionError("Gagal mengambil config Motion Detection.");
+    } finally {
+      if (showLoading) {
+        setMotionDetectionLoading(false);
+      }
+    }
+  }, [activeChannel, activeConfig?.key, channelIsSelected]);
+
+  useEffect(() => {
+    if (!channelIsSelected || activeConfig?.key !== "motionDetection") {
+      return;
+    }
+    reloadMotionDetectionConfig({ showLoading: true });
+  }, [activeChannel, activeConfig?.key, channelIsSelected, reloadMotionDetectionConfig]);
 
   const handleTogglePeopleEnable = async (nextValue) => {
     if (!channelIsSelected) {
@@ -366,6 +411,38 @@ const CameraSettings = () => {
     );
   }, [smartMotionDraft, smartMotionConfig]);
 
+  const handleSaveMotionDetectionConfig = async () => {
+    if (!channelIsSelected) {
+      return;
+    }
+    const channelNumber = Number(String(activeChannel).replace("ch", ""));
+    setMotionDetectionLoading(true);
+    setMotionDetectionError("");
+    try {
+      await cameraSettingsService.setMotionDetectEnable({
+        channelId: channelNumber,
+        enabled: Boolean(motionDetectionDraft.enabled),
+        channelIndexOverride: motionDetectionConfig.channelIndex,
+      });
+      await reloadMotionDetectionConfig({ showLoading: false });
+    } catch {
+      setMotionDetectionError("Gagal menyimpan config Motion Detection.");
+    } finally {
+      setMotionDetectionLoading(false);
+    }
+  };
+
+  const handleCancelMotionDetectionChanges = () => {
+    setMotionDetectionDraft({
+      enabled: Boolean(motionDetectionConfig.enabled),
+    });
+    setMotionDetectionError("");
+  };
+
+  const isMotionDetectionDirty = useMemo(() => {
+    return Boolean(motionDetectionDraft.enabled) !== Boolean(motionDetectionConfig.enabled);
+  }, [motionDetectionDraft.enabled, motionDetectionConfig.enabled]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -393,11 +470,13 @@ const CameraSettings = () => {
                 ? reloadPeopleConfig()
                 : activeConfig?.key === "smartMotion"
                   ? reloadSmartMotionConfig()
+                  : activeConfig?.key === "motionDetection"
+                    ? reloadMotionDetectionConfig()
                   : null
             }
             disabled={
               !channelIsSelected
-              || (activeConfig?.panelType !== "peopleCounting" && activeConfig?.key !== "smartMotion")
+              || (activeConfig?.panelType !== "peopleCounting" && activeConfig?.key !== "smartMotion" && activeConfig?.key !== "motionDetection")
             }
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold bg-white border rounded-xl border-navy/10 text-navy/75 hover:bg-slate-50"
           >
@@ -468,7 +547,7 @@ const CameraSettings = () => {
           </div>
         </aside>
 
-        <section className="relative pb-20 p-5 bg-white border rounded-2xl border-navy/10">
+        <section className="relative p-5 pb-20 bg-white border rounded-2xl border-navy/10">
           {!channelIsSelected && (
             <div className="px-4 py-3 mb-4 text-sm font-semibold border rounded-xl border-amber-200 bg-amber-50 text-amber-700">
               Pilih channel terlebih dahulu untuk membuka pengaturan.
@@ -500,7 +579,7 @@ const CameraSettings = () => {
           </div>
 
       
-          {activeConfig?.panelType !== "peopleCounting" && activeConfig?.key !== "smartMotion" && (
+          {activeConfig?.panelType !== "peopleCounting" && activeConfig?.key !== "smartMotion" && activeConfig?.key !== "motionDetection" && (
             <div className="px-4 py-3 mb-4 bg-white border rounded-xl border-navy/10">
               <p className="text-sm font-semibold text-navy/70">
                 Data menu ini hanya ditampilkan jika endpoint API tersedia.
@@ -511,7 +590,7 @@ const CameraSettings = () => {
             </div>
           )}
 
-          {activeConfig?.panelType !== "peopleCounting" && activeConfig?.key !== "smartMotion" && (
+          {activeConfig?.panelType !== "peopleCounting" && activeConfig?.key !== "smartMotion" && activeConfig?.key !== "motionDetection" && (
             <div className="flex items-center justify-between px-4 py-3 mb-4 border rounded-xl border-navy/10 bg-slate-50">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">
@@ -751,6 +830,34 @@ const CameraSettings = () => {
 
               
             </div>
+          ) : activeConfig?.key === "motionDetection" ? (
+            <div className="pb-16 space-y-4">
+              <div className="flex items-center justify-between px-4 py-3 border rounded-xl border-navy/10 bg-slate-50">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">
+                    Enable
+                  </p>
+                  
+                </div>
+                <Switch
+                  checked={Boolean(motionDetectionDraft.enabled)}
+                  onChange={(nextValue) =>
+                    setMotionDetectionDraft((prev) => ({ ...prev, enabled: nextValue }))
+                  }
+                />
+              </div>
+
+              {motionDetectionLoading && (
+                <p className="text-sm font-semibold text-navy/55">
+                  Sinkronisasi Motion Detection...
+                </p>
+              )}
+              {motionDetectionError && (
+                <p className="text-sm font-semibold text-danger">
+                  {motionDetectionError}
+                </p>
+              )}
+            </div>
           ) : (
             <div className="space-y-2">
               <p className="px-4 py-3 text-sm font-semibold border rounded-xl border-navy/10 bg-slate-50 text-navy/60">
@@ -772,6 +879,25 @@ const CameraSettings = () => {
                   type="button"
                   onClick={handleSaveSmartMotionConfig}
                   disabled={smartMotionLoading || !isSmartMotionDirty}
+                  className="px-4 py-2 text-sm font-bold text-white rounded-lg bg-sky-600 disabled:opacity-60"
+                >
+                  Save
+                </button>
+              </div>
+
+          <div className={`absolute bottom-5 right-5 flex justify-end gap-2 ${activeConfig?.key === "motionDetection" ? "" : "hidden"}`}>
+                <button
+                  type="button"
+                  onClick={handleCancelMotionDetectionChanges}
+                  disabled={motionDetectionLoading || !isMotionDetectionDirty}
+                  className="px-4 py-2 text-sm font-bold border rounded-lg border-navy/20 text-navy/70 disabled:opacity-60"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveMotionDetectionConfig}
+                  disabled={motionDetectionLoading || !isMotionDetectionDirty}
                   className="px-4 py-2 text-sm font-bold text-white rounded-lg bg-sky-600 disabled:opacity-60"
                 >
                   Save

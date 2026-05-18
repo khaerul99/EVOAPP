@@ -851,6 +851,40 @@ function extractRawEventDataFromError(error) {
 }
 
 export const cameraSettingsService = {
+  getMotionDetectConfig: async (channelId = 1) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Math.max(cleanId - 1, 0);
+    await warmupDigestChallenge();
+    const response = await ApiClient.get("/cgi-bin/configManager.cgi?action=getConfig&name=MotionDetect");
+    const normalized = normalizeDahuaConfigMap(response?.data);
+
+    return {
+      channelId: cleanId,
+      channelIndex,
+      enabled: toBoolean(normalized[`MotionDetect[${channelIndex}].Enable`]),
+      raw: normalized,
+    };
+  },
+
+  setMotionDetectEnable: async ({
+    channelId,
+    enabled,
+    channelIndexOverride = null,
+  }) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Number.isFinite(Number(channelIndexOverride))
+      ? Math.max(Number(channelIndexOverride), 0)
+      : Math.max(cleanId - 1, 0);
+    const query = buildConfigManagerQuery({
+      action: "setConfig",
+      name: "MotionDetect",
+      [`MotionDetect[${channelIndex}].Enable`]: enabled ? "true" : "false",
+    });
+    await warmupDigestChallenge();
+    const response = await ApiClient.get(`/cgi-bin/configManager.cgi?${query}`);
+    return response?.data;
+  },
+
   getSmartMotionConfig: async (channelId = 1) => {
     const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
     const channelIndex = Math.max(cleanId - 1, 0);

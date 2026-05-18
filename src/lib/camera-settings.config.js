@@ -60,7 +60,7 @@ export const MENU_CONFIG = [
         key: 'motionDetection',
         title: 'Motion Detection',
         subtitle: 'VideoMotion',
-        endpoint: EVENT_ENDPOINT,
+        endpoint: CONFIG_ENDPOINT,
         eventCodes: ['VideoMotion'],
         dataRows: [
             { key: 'videoMotion', label: 'VideoMotion', eventCode: 'VideoMotion' },
