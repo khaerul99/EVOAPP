@@ -88,7 +88,11 @@ function isErrorPayload(rawData) {
 }
 
 function normalizeConfigKey(key) {
-  return String(key || "").replace(/^table\./i, "");
+  // Dahua text/kv responses prefix keys with "table."
+  // Dahua JSON responses wrap data under "params." — both must be stripped
+  return String(key || "")
+    .replace(/^table\./i, "")
+    .replace(/^params\./i, "");
 }
 
 function normalizeKeyValueMap(rawMap = {}) {
@@ -166,6 +170,20 @@ function toInteger(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function collectAvailableConfigIndexes(map = {}, baseNamePattern) {
+  const indexes = new Set();
+  const regex = new RegExp(`^${baseNamePattern}\\[(\\d+)\\]`, "i");
+  Object.keys(map || {}).forEach((key) => {
+    const match = key.match(regex);
+    if (!match) return;
+    const idx = Number(match[1]);
+    if (Number.isFinite(idx)) {
+      indexes.add(idx);
+    }
+  });
+  return Array.from(indexes).sort((a, b) => a - b);
+}
+
 function normalizeBooleanLike(value) {
   const normalized = String(value ?? "")
     .trim()
@@ -199,6 +217,99 @@ function isPeopleCountingRuleType(ruleType) {
     normalized.includes("queue") ||
     normalized.includes("abnormal")
   );
+}
+
+function isVideoMetadataRuleToken(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes("videometadata")
+    || normalized.includes("metadata")
+    || normalized.includes("peopledetection")
+    || normalized.includes("persondetection")
+    || normalized.includes("motorvehicledetection")
+    || normalized.includes("nonmotorvehicledetection")
+    || normalized.includes("non-motor")
+    || normalized.includes("vehicle")
+    || normalized.includes("face")
+  );
+}
+
+function getVideoMetadataCoreRuleKey(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized.includes("humantrait") || normalized.includes("people")) return "people";
+  if (normalized.includes("vehicledetect") || normalized.includes("motor vehicle")) return "motor";
+  if (normalized.includes("nonmotordetect") || normalized.includes("non-motor")) return "non_motor";
+  return "";
+}
+
+function isVideoMetadataGlobalAlgType(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes("normal")
+    || normalized.includes("face")
+    || normalized.includes("stereo")
+    || normalized.includes("finance")
+    || normalized.includes("fire")
+    || normalized.includes("intelli")
+    || normalized.includes("conveyer")
+  );
+}
+
+function collectVideoMetadataGlobalRulesFromRuleMap(rawRuleMap = {}, channelIndex = 0) {
+  const rules = [];
+  const ruleMapByIndex = {};
+
+  Object.entries(rawRuleMap || {}).forEach(([key, value]) => {
+    const match = key.match(new RegExp(`^VideoAnaly(?:se|ze)Rule\\[${channelIndex}\\]\\[(\\d+)\\]\\.(Class|Type|Enable|Name|RuleName)$`, "i"));
+    if (!match) return;
+    const idx = Number(match[1]);
+    const field = String(match[2] || "").trim();
+    if (!Number.isFinite(idx) || !field) return;
+    if (!ruleMapByIndex[idx]) ruleMapByIndex[idx] = { index: idx };
+    ruleMapByIndex[idx][field] = value;
+  });
+
+  Object.values(ruleMapByIndex)
+    .sort((a, b) => a.index - b.index)
+    .forEach((entry) => {
+      const classStr = String(entry.Class || "").trim();
+      const typeStr = String(entry.Type || "").trim();
+      const isGlobalMetaRule = classStr.toLowerCase() === "normal";
+      if (!isGlobalMetaRule) return;
+      rules.push({
+        index: entry.index,
+        className: classStr,
+        type: typeStr,
+        enabled: toBoolean(entry.Enable ?? false),
+      });
+    });
+
+  return rules;
+}
+
+function extractVideoMetadataGlobalFromSceneTypeList(rawGlobalMap = {}, channelIndex = 0) {
+  const values = [];
+  Object.entries(rawGlobalMap || {}).forEach(([key, value]) => {
+    const match = key.match(new RegExp(`^VideoAnaly(?:se|ze)Global\\[${channelIndex}\\]\\.Scene\\.TypeList\\[(\\d+)\\]$`, "i"));
+    if (!match) return;
+    values.push(String(value || "").trim());
+  });
+
+  if (values.length === 0) {
+    return { found: false, enabled: null, values: [] };
+  }
+
+  const enabled = values.some((value) => isVideoMetadataGlobalAlgType(value));
+  return { found: true, enabled, values };
 }
 
 function parsePeopleCountingFromNumberStatObject(rawData, preferredIndex = 0) {
@@ -851,6 +962,205 @@ function extractRawEventDataFromError(error) {
 }
 
 export const cameraSettingsService = {
+  getVideoMetadataConfig: async (channelId = 1) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Math.max(cleanId - 1, 0);
+    await warmupDigestChallenge();
+
+    // Fetch 1: VideoAnalyseRule per channel  (rules + per-rule enable)
+    // Fetch 2: VideoMetadata per channel      (global enable — NVR AI by Recorder)
+    // Fetch 3: VideoAnalyse per channel       (master AI enable — beberapa firmware)
+    // Fetch 4: VideoAnalyseGlobal per channel (global enable — IPC/NVR hybrid)
+    // Fetch 5: VideoAnalyseRule all channels  (fallback rules)
+    // Fetch 6: VideoMetadata all channels     (fallback global enable)
+    const [
+      ruleResult,
+      ruleFallbackResult,
+      vaGlobalFallbackResult,
+    ] = await Promise.allSettled([
+      ApiClient.get(`/cgi-bin/configManager.cgi?action=getConfig&name=${encodeURIComponent(`VideoAnalyseRule[${channelIndex}]`)}`),
+      ApiClient.get("/cgi-bin/configManager.cgi?action=getConfig&name=VideoAnalyseRule"),
+      ApiClient.get("/cgi-bin/configManager.cgi?action=getConfig&name=VideoAnalyseGlobal"),
+    ]);
+
+    const safeParseConfig = (result) => {
+      if (result.status !== "fulfilled") return {};
+      const rawData = result.value?.data;
+      // Jika response adalah error payload (e.g. "Error=System busy"), skip
+      if (isErrorPayload(rawData)) return {};
+      return normalizeDahuaConfigMap(rawData) || {};
+    };
+
+    const ruleMapPrimary       = safeParseConfig(ruleResult);
+    const ruleMapFallback      = safeParseConfig(ruleFallbackResult);
+    const vaGlobalMap = safeParseConfig(vaGlobalFallbackResult);
+
+    // Merge: fallback sebagai base, primary override
+    const ruleMap      = { ...ruleMapFallback,     ...ruleMapPrimary };
+
+    if (
+      Object.keys(ruleMap).length === 0
+    ) {
+      throw new Error("Video metadata config tidak tersedia dari endpoint VideoAnalyseRule.");
+    }
+
+    const metadataRules = [];
+    const addedRuleIndexes = new Set();
+
+    const tryAddMetadataRule = (ruleIndex, typeValue, enableKey, nameKey, ruleNameKey) => {
+      if (addedRuleIndexes.has(ruleIndex)) {
+        return;
+      }
+      const typeStr = String(typeValue || "").trim();
+      const ruleName = String(ruleMap[nameKey] || ruleMap[ruleNameKey] || "").trim();
+      if (!isVideoMetadataRuleToken(typeStr) && !isVideoMetadataRuleToken(ruleName)) {
+        return;
+      }
+      const enabled = toBoolean(ruleMap[enableKey] ?? "false");
+      addedRuleIndexes.add(ruleIndex);
+      metadataRules.push({
+        index: ruleIndex,
+        type: typeStr,
+        name: ruleName || typeStr || `Metadata Rule ${ruleIndex + 1}`,
+        enabled,
+        alarmType: "All",
+      });
+    };
+
+    Object.entries(ruleMap).forEach(([key, value]) => {
+      // Format 1: VideoAnalyseRule[cfgIdx][ruleIdx].Type  (IPC standard)
+      const fmt1 = key.match(/^VideoAnaly(?:se|ze)Rule\[(\d+)\]\[(\d+)\]\.Type$/i);
+      if (fmt1) {
+        const cfgIndex = Number(fmt1[1]);
+        const ruleIndex = Number(fmt1[2]);
+        if (Number.isFinite(cfgIndex) && cfgIndex === channelIndex && Number.isFinite(ruleIndex)) {
+          tryAddMetadataRule(
+            ruleIndex,
+            String(value || "").trim(),
+            `VideoAnalyseRule[${channelIndex}][${ruleIndex}].Enable`,
+            `VideoAnalyseRule[${channelIndex}][${ruleIndex}].Name`,
+            `VideoAnalyseRule[${channelIndex}][${ruleIndex}].RuleName`,
+          );
+        }
+        return;
+      }
+
+      // Format 2: VideoAnalyseRule[cfgIdx][ruleIdx].Class  (NVR AI by Recorder - dari debug data nyata)
+      const fmt2 = key.match(/^VideoAnaly(?:se|ze)Rule\[(\d+)\]\[(\d+)\]\.Class$/i);
+      if (fmt2) {
+        const cfgIndex = Number(fmt2[1]);
+        const ruleIndex = Number(fmt2[2]);
+        if (Number.isFinite(cfgIndex) && cfgIndex === channelIndex && Number.isFinite(ruleIndex)) {
+          tryAddMetadataRule(
+            ruleIndex,
+            String(value || "").trim(),
+            `VideoAnalyseRule[${channelIndex}][${ruleIndex}].Enable`,
+            `VideoAnalyseRule[${channelIndex}][${ruleIndex}].Name`,
+            `VideoAnalyseRule[${channelIndex}][${ruleIndex}].RuleName`,
+          );
+        }
+        return;
+      }
+
+      // Format 3: VideoAnalyseRule[cfgIdx].Rule[ruleIdx].Type  (NVR legacy)
+      const fmt3 = key.match(/^VideoAnaly(?:se|ze)Rule\[(\d+)\]\.Rule\[(\d+)\]\.Type$/i);
+      if (fmt3) {
+        const cfgIndex = Number(fmt3[1]);
+        const ruleIndex = Number(fmt3[2]);
+        if (Number.isFinite(cfgIndex) && cfgIndex === channelIndex && Number.isFinite(ruleIndex)) {
+          tryAddMetadataRule(
+            ruleIndex,
+            String(value || "").trim(),
+            `VideoAnalyseRule[${channelIndex}].Rule[${ruleIndex}].Enable`,
+            `VideoAnalyseRule[${channelIndex}].Rule[${ruleIndex}].Name`,
+            `VideoAnalyseRule[${channelIndex}].Rule[${ruleIndex}].RuleName`,
+          );
+        }
+      }
+    });
+
+    metadataRules.sort((a, b) => a.index - b.index);
+    const metadataCoreOrder = { people: 0, motor: 1, non_motor: 2 };
+    const metadataCoreNameMap = {
+      people: "People Detection",
+      motor: "Motor Vehicle Detection",
+      non_motor: "Non-motor Vehicle Detection",
+    };
+    const metadataCoreRules = metadataRules
+      .map((rule) => {
+        const coreKey = getVideoMetadataCoreRuleKey(rule?.type || rule?.name);
+        return { ...rule, coreKey };
+      })
+      .filter((rule) => Boolean(rule.coreKey))
+      .sort((a, b) => metadataCoreOrder[a.coreKey] - metadataCoreOrder[b.coreKey])
+      .map((rule) => ({
+        ...rule,
+        name: metadataCoreNameMap[rule.coreKey] || rule.name,
+      }));
+    const metadataRulesForUi = metadataCoreRules.length > 0 ? metadataCoreRules : metadataRules;
+
+    const resolvedRuleIndexes = collectAvailableConfigIndexes(ruleMap, "VideoAnaly(?:se|ze)Rule");
+    const resolvedChannelIndex = resolvedRuleIndexes.includes(channelIndex)
+      ? channelIndex
+      : (resolvedRuleIndexes[0] ?? channelIndex);
+
+    const globalSceneResult = extractVideoMetadataGlobalFromSceneTypeList(
+      vaGlobalMap,
+      resolvedChannelIndex,
+    );
+
+    const resolvedGlobalRules = collectVideoMetadataGlobalRulesFromRuleMap(
+      ruleMap,
+      resolvedChannelIndex,
+    );
+    const resolvedExplicitGlobalEnable = resolvedGlobalRules.length > 0
+      ? resolvedGlobalRules.some((rule) => rule.enabled)
+      : null;
+
+    const earlyResolvedEnabled = globalSceneResult.found
+      ? Boolean(globalSceneResult.enabled)
+      : (resolvedExplicitGlobalEnable ?? false);
+    const earlyResolvedSource = globalSceneResult.found
+      ? "VideoAnalyseGlobal.Scene.TypeList"
+      : (resolvedExplicitGlobalEnable !== null
+        ? "VideoAnalyseRule.Class=Normal.Enable"
+        : "global.notFound.defaultFalse");
+
+    return {
+      channelId: cleanId,
+      channelIndex,
+      effectiveChannelIndex: resolvedChannelIndex,
+      enabled: earlyResolvedEnabled,
+      source: earlyResolvedSource,
+      ruleIndexes: metadataRulesForUi.map((rule) => rule.index),
+      rules: metadataRulesForUi,
+      raw: { ruleMap, vaGlobalMap, globalSceneResult },
+    };
+  },
+
+  setVideoMetadataEnable: async ({
+    channelId,
+    enabled,
+    channelIndexOverride = null,
+  }) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Number.isFinite(Number(channelIndexOverride))
+      ? Math.max(Number(channelIndexOverride), 0)
+      : Math.max(cleanId - 1, 0);
+
+    const enableStr = enabled ? "true" : "false";
+    const params = { action: "setConfig" };
+
+    params.name = "VideoAnalyseGlobal";
+    params[`VideoAnalyseGlobal[${channelIndex}].Scene.TypeList[0]`] = enabled ? "Normal" : "";
+    params[`VideoAnalyseGlobal[${channelIndex}].Scene.Type`] = enabled ? "ObjectDetect" : "";
+
+    const query = buildConfigManagerQuery(params);
+    await warmupDigestChallenge();
+    const response = await ApiClient.get(`/cgi-bin/configManager.cgi?${query}`);
+    return response?.data;
+  },
+
   getMotionDetectConfig: async (channelId = 1) => {
     const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
     const channelIndex = Math.max(cleanId - 1, 0);

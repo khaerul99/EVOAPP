@@ -28,7 +28,7 @@ export const MENU_CONFIG = [
         key: 'videoMetadata',
         title: 'Video Metadata',
         subtitle: 'VideoMetadata',
-        endpoint: EVENT_ENDPOINT,
+        endpoint: CONFIG_ENDPOINT,
         eventCodes: ['VideoMetadata'],
         dataRows: [
             { key: 'videoMetadata', label: 'VideoMetadata', eventCode: 'VideoMetadata' },
