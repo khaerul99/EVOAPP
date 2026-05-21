@@ -1,3 +1,5 @@
+import AxiosDigest from 'axios-digest'
+import axios from 'axios'
 import { computeDigestSecret } from './auth-helper'
 import {
     canSignWithDigest,
@@ -7,6 +9,72 @@ import {
     shouldSkipDigestRetry,
 } from './digest-auth'
 import { authStore } from '../stores/authSlice'
+import { clearSession } from './session-helper'
+import { AUTH_PROBE_DIGEST_URI } from './api-config'
+
+function pickDigestPassword(authState) {
+    return String(authState?.runtimeRtspPassword || '').trim()
+}
+
+function cloneHeaders(headers) {
+    return {
+        ...(headers || {}),
+    }
+}
+
+function normalizeDigestChallengeHeaders(headers = {}) {
+    const nextHeaders = cloneHeaders(headers)
+    const digestChallenge = nextHeaders['www-authenticate']
+        || nextHeaders['WWW-Authenticate']
+        || nextHeaders['x-www-authenticate']
+        || nextHeaders['X-WWW-Authenticate']
+        || nextHeaders['X-Www-Authenticate']
+
+    if (digestChallenge && !nextHeaders['www-authenticate']) {
+        nextHeaders['www-authenticate'] = digestChallenge
+    }
+
+    return nextHeaders
+}
+
+async function retryWithAxiosDigest(originalConfig, authState) {
+    const username = String(authState?.auth?.username || '').trim()
+    const password = pickDigestPassword(authState)
+    if (!username || !password) {
+        return null
+    }
+
+    const axiosInstance = axios.create()
+    axiosInstance.interceptors.response.use(
+        (response) => response,
+        (requestError) => {
+            if (requestError?.response?.headers) {
+                requestError.response.headers = normalizeDigestChallengeHeaders(requestError.response.headers)
+            }
+            return Promise.reject(requestError)
+        },
+    )
+
+    const digestClient = new AxiosDigest(username, password, axiosInstance)
+    const method = String(originalConfig?.method || 'get').toLowerCase()
+    const requestConfig = {
+        ...originalConfig,
+        headers: normalizeDigestChallengeHeaders(originalConfig?.headers || {}),
+        __skipDigestSign: true,
+        __noRetry: true,
+        __digestRetryCount: Number(originalConfig?.__digestRetryCount || 0) + 1,
+    }
+
+    if (method === 'get' || method === 'delete' || method === 'head') {
+        return digestClient[method](originalConfig.url, requestConfig)
+    }
+
+    if (method === 'post' || method === 'put' || method === 'patch') {
+        return digestClient[method](originalConfig.url, originalConfig.data, requestConfig)
+    }
+
+    return null
+}
 
 function routeRequestThroughProxy(config) {
     if (!import.meta.env.PROD) {
@@ -23,6 +91,7 @@ function routeRequestThroughProxy(config) {
     const nextParams = {
         ...(config.params || {}),
         __path: requestPath,
+        _path: requestPath,
     }
 
     parsed.searchParams.forEach((value, key) => {
@@ -48,15 +117,35 @@ function signRequestWithDigest(config, authState) {
     return result.config
 }
 
+function shouldForceLogoutForRequest(config = {}) {
+    const urlStr = String(config?.url || '').toLowerCase()
+    if (urlStr.startsWith('/api/auth-probe')) {
+        return true
+    }
+
+    const rawPath = String(config?.params?.__path || config?.params?._path || '').trim()
+    if (!rawPath) {
+        return false
+    }
+
+    const normalizedPath = `/${rawPath.replace(/^\/+/, '')}`.toLowerCase()
+    return normalizedPath === String(AUTH_PROBE_DIGEST_URI || '').toLowerCase()
+}
+
 export function setupInterceptors(ApiClient) {
     ApiClient.interceptors.request.use((config) => {
-        if (config?.__skipDigestSign) {
-            return config
+        // Route the request through proxy first so the params (`__path` / `_path`) are present
+        // then sign the routed config with digest so the `uri` used in the signature
+        // matches the actual proxied camera target (including query string).
+        const routed = routeRequestThroughProxy(config)
+
+        if (routed?.__skipDigestSign) {
+            return routed
         }
 
         const authState = authStore.getState()
-        const signed = signRequestWithDigest(config, authState)
-        return routeRequestThroughProxy(signed)
+        const signed = signRequestWithDigest(routed, authState)
+        return signed
     })
 
     ApiClient.interceptors.response.use(
@@ -88,6 +177,19 @@ export function setupInterceptors(ApiClient) {
             const retryCount = Number(originalConfig.__digestRetryCount || 0)
             const maxRetry = 1
             if (retryCount >= maxRetry) {
+                // Do not force global logout for every 401.
+                // Only auth-probe failures are considered session-expired signals.
+                try {
+                    if (typeof window !== 'undefined' && shouldForceLogoutForRequest(originalConfig)) {
+                        clearSession()
+                        try {
+                            window.dispatchEvent(new CustomEvent('evosecure:auth-expired', { detail: { reason: '401-exhausted' } }))
+                        } catch {
+                            try { window.__evosecure_auth_expired = true } catch {}
+                        }
+                    }
+                } catch {}
+
                 throw error
             }
 
@@ -105,6 +207,22 @@ export function setupInterceptors(ApiClient) {
             const refreshedState = authStore.getState()
             if (!canSignWithDigest(refreshedState)) {
                 throw error
+            }
+
+            try {
+                const digestResponse = await retryWithAxiosDigest(
+                    routeRequestThroughProxy({
+                        ...originalConfig,
+                        __digestRetryCount: retryCount,
+                    }),
+                    refreshedState,
+                )
+
+                if (digestResponse) {
+                    return digestResponse
+                }
+            } catch {
+                // Fallback ke signer digest berbasis CryptoJS jika wrapper axios-digest gagal.
             }
 
             const retriedConfig = signRequestWithDigest(

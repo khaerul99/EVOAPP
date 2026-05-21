@@ -1,5 +1,6 @@
 import ApiClient from "../../lib/api";
 import { warmupDigestChallenge } from "../auth/digest-warmup.service";
+import { withConcurrencyLimit } from "../../lib/request-queue";
 
 const CAMERA_CHANNELS_CACHE_TTL_MS = Number(
   import.meta.env.VITE_CAMERA_CHANNELS_CACHE_TTL_MS || 8000,
@@ -1439,9 +1440,13 @@ export const cameraService = {
       .filter((index) => Number.isFinite(index))
       .sort((a, b) => a - b);
 
-    // Run probes in parallel (snapshot already fetched inside getCameraStatusProbe)
+    // Run probes with limited concurrency to avoid flooding the device with
+    // simultaneous digest-protected requests which can cause many 401s.
     const statusProbeByIndex = {};
-    const probePromises = probeIndexes.map(async (index) => {
+
+    const concurrency = Number(import.meta.env.VITE_PROBE_CONCURRENCY || 3);
+
+    const probeWorker = async (index) => {
       try {
         const probe = await getCameraStatusProbe(index);
         const rawConnectionState = String(
@@ -1471,9 +1476,9 @@ export const cameraService = {
       } catch {
         return [index, { status: "offline", record: false }];
       }
-    });
+    };
 
-    const probeResults = await Promise.all(probePromises);
+    const probeResults = await withConcurrencyLimit(probeIndexes, probeWorker, concurrency);
     probeResults.forEach(([idx, value]) => {
       statusProbeByIndex[idx] = value;
     });

@@ -88,7 +88,11 @@ function isErrorPayload(rawData) {
 }
 
 function normalizeConfigKey(key) {
-  return String(key || "").replace(/^table\./i, "");
+  // Dahua text/kv responses prefix keys with "table."
+  // Dahua JSON responses wrap data under "params." — both must be stripped
+  return String(key || "")
+    .replace(/^table\./i, "")
+    .replace(/^params\./i, "");
 }
 
 function normalizeKeyValueMap(rawMap = {}) {
@@ -166,6 +170,20 @@ function toInteger(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function collectAvailableConfigIndexes(map = {}, baseNamePattern) {
+  const indexes = new Set();
+  const regex = new RegExp(`^${baseNamePattern}\\[(\\d+)\\]`, "i");
+  Object.keys(map || {}).forEach((key) => {
+    const match = key.match(regex);
+    if (!match) return;
+    const idx = Number(match[1]);
+    if (Number.isFinite(idx)) {
+      indexes.add(idx);
+    }
+  });
+  return Array.from(indexes).sort((a, b) => a - b);
+}
+
 function normalizeBooleanLike(value) {
   const normalized = String(value ?? "")
     .trim()
@@ -199,6 +217,99 @@ function isPeopleCountingRuleType(ruleType) {
     normalized.includes("queue") ||
     normalized.includes("abnormal")
   );
+}
+
+function isVideoMetadataRuleToken(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes("videometadata")
+    || normalized.includes("metadata")
+    || normalized.includes("peopledetection")
+    || normalized.includes("persondetection")
+    || normalized.includes("motorvehicledetection")
+    || normalized.includes("nonmotorvehicledetection")
+    || normalized.includes("non-motor")
+    || normalized.includes("vehicle")
+    || normalized.includes("face")
+  );
+}
+
+function getVideoMetadataCoreRuleKey(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized.includes("humantrait") || normalized.includes("people")) return "people";
+  if (normalized.includes("vehicledetect") || normalized.includes("motor vehicle")) return "motor";
+  if (normalized.includes("nonmotordetect") || normalized.includes("non-motor")) return "non_motor";
+  return "";
+}
+
+function isVideoMetadataGlobalAlgType(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes("normal")
+    || normalized.includes("face")
+    || normalized.includes("stereo")
+    || normalized.includes("finance")
+    || normalized.includes("fire")
+    || normalized.includes("intelli")
+    || normalized.includes("conveyer")
+  );
+}
+
+function collectVideoMetadataGlobalRulesFromRuleMap(rawRuleMap = {}, channelIndex = 0) {
+  const rules = [];
+  const ruleMapByIndex = {};
+
+  Object.entries(rawRuleMap || {}).forEach(([key, value]) => {
+    const match = key.match(new RegExp(`^VideoAnaly(?:se|ze)Rule\\[${channelIndex}\\]\\[(\\d+)\\]\\.(Class|Type|Enable|Name|RuleName)$`, "i"));
+    if (!match) return;
+    const idx = Number(match[1]);
+    const field = String(match[2] || "").trim();
+    if (!Number.isFinite(idx) || !field) return;
+    if (!ruleMapByIndex[idx]) ruleMapByIndex[idx] = { index: idx };
+    ruleMapByIndex[idx][field] = value;
+  });
+
+  Object.values(ruleMapByIndex)
+    .sort((a, b) => a.index - b.index)
+    .forEach((entry) => {
+      const classStr = String(entry.Class || "").trim();
+      const typeStr = String(entry.Type || "").trim();
+      const isGlobalMetaRule = classStr.toLowerCase() === "normal";
+      if (!isGlobalMetaRule) return;
+      rules.push({
+        index: entry.index,
+        className: classStr,
+        type: typeStr,
+        enabled: toBoolean(entry.Enable ?? false),
+      });
+    });
+
+  return rules;
+}
+
+function extractVideoMetadataGlobalFromSceneTypeList(rawGlobalMap = {}, channelIndex = 0) {
+  const values = [];
+  Object.entries(rawGlobalMap || {}).forEach(([key, value]) => {
+    const match = key.match(new RegExp(`^VideoAnaly(?:se|ze)Global\\[${channelIndex}\\]\\.Scene\\.TypeList\\[(\\d+)\\]$`, "i"));
+    if (!match) return;
+    values.push(String(value || "").trim());
+  });
+
+  if (values.length === 0) {
+    return { found: false, enabled: null, values: [] };
+  }
+
+  const enabled = values.some((value) => isVideoMetadataGlobalAlgType(value));
+  return { found: true, enabled, values };
 }
 
 function parsePeopleCountingFromNumberStatObject(rawData, preferredIndex = 0) {
@@ -685,60 +796,569 @@ function parseAttachEventStream(rawData, expectedCodes = []) {
   return initialState;
 }
 
-function buildAttachQuery({ channelId, eventCodes }) {
-  const codesText = `[${(eventCodes || []).join(",")}]`;
-  const encodedCodes = encodeURIComponent(codesText);
+function parseAttachEventEntries(rawData) {
+  const text = String(rawData || "");
+  const entries = [];
 
+  const parseKeyValueLine = (line) => {
+    const pairs = String(line || "").split(";").map((chunk) => chunk.trim()).filter(Boolean);
+    const fields = {};
+    pairs.forEach((pair) => {
+      const separatorIndex = pair.indexOf("=");
+      if (separatorIndex < 0) {
+        return;
+      }
+      const key = pair.slice(0, separatorIndex).trim();
+      const value = pair.slice(separatorIndex + 1).trim();
+      if (!key) {
+        return;
+      }
+      fields[key] = value;
+      fields[String(key).toLowerCase()] = value;
+    });
+    return fields;
+  };
+
+  const parseWithEmbeddedJson = () => {
+    let cursor = 0;
+    while (cursor < text.length) {
+      const codeMatch = /(?:^|[\r\n;])\s*code=/i.exec(text.slice(cursor));
+      const codeIndex = codeMatch ? cursor + codeMatch.index : -1;
+      if (codeIndex < 0) {
+        break;
+      }
+
+      const dataIndex = text.indexOf("data=", codeIndex);
+      if (dataIndex < 0) {
+        cursor = codeIndex + 5;
+        continue;
+      }
+
+      const prefix = text.slice(codeIndex, dataIndex).trim().replace(/;$/, "");
+      const jsonStart = text.indexOf("{", dataIndex);
+      if (jsonStart < 0) {
+        cursor = dataIndex + 5;
+        continue;
+      }
+
+      let depth = 0;
+      let jsonEnd = -1;
+      for (let i = jsonStart; i < text.length; i += 1) {
+        const ch = text[i];
+        if (ch === "{") depth += 1;
+        if (ch === "}") {
+          depth -= 1;
+          if (depth === 0) {
+            jsonEnd = i;
+            break;
+          }
+        }
+      }
+
+      if (jsonEnd < 0) {
+        break;
+      }
+
+      const jsonText = text.slice(jsonStart, jsonEnd + 1);
+      const fields = parseKeyValueLine(prefix);
+      let data = null;
+      try {
+        data = JSON.parse(jsonText);
+      } catch {
+        data = null;
+      }
+
+      const code = String(fields.Code || fields.code || "");
+      const action = String(fields.action || fields.Action || "start").toLowerCase();
+      if (code) {
+        entries.push({
+          code,
+          action,
+          active: !["stop", "end", "idle", "offline"].includes(action),
+          fields,
+          data,
+          raw: `${prefix};data=${jsonText}`,
+        });
+      }
+
+      cursor = jsonEnd + 1;
+    }
+  };
+
+  parseWithEmbeddedJson();
+
+  if (entries.length > 0) {
+    return entries;
+  }
+
+  // Fallback for one-line key=value payload format.
+  const rows = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return rows.map((row) => {
+    const fields = parseKeyValueLine(row);
+    const code = String(fields.Code || fields.code || "");
+    const action = String(fields.action || fields.Action || "start").toLowerCase();
+    return {
+      code,
+      action,
+      active: !["stop", "end", "idle", "offline"].includes(action),
+      fields,
+      data: null,
+      raw: row,
+    };
+  }).filter((entry) => entry.code);
+}
+
+function buildAttachQueryVariants({ channelId, eventCodes }) {
+  const normalizedCodes = (Array.isArray(eventCodes) ? eventCodes : [])
+    .map((code) => String(code || "").trim())
+    .filter(Boolean);
+  const csvCodes = normalizedCodes.join(",");
+  const bracketCodes = `[${csvCodes}]`;
+
+  // Revert to legacy single canonical format that previously returned 200 on target firmware.
+  return [`action=attach&channel=${channelId}&codes=${bracketCodes}`];
+}
+
+function buildRealtimeEventPayload(raw, eventCodes = []) {
+  const normalizedRaw = String(raw || "");
+  const entries = parseAttachEventEntries(normalizedRaw);
+  const events = parseAttachEventStream(normalizedRaw, eventCodes);
   return {
-    raw: `action=attach&channel=${channelId}&codes=${codesText}`,
-    encoded: `action=attach&channel=${channelId}&codes=${encodedCodes}`,
+    events,
+    entries,
+    raw: normalizedRaw,
+    fetchedAt: new Date().toISOString(),
   };
 }
 
+function payloadHasExpectedEvent(payload, expectedSet) {
+  const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+  const events = payload?.events || {};
+  const hasExpectedEntry = entries.some((entry) => expectedSet.has(String(entry?.code || "").toLowerCase()));
+  const hasExpectedEvent = Object.keys(events).some((code) => expectedSet.has(String(code || "").toLowerCase()));
+  return hasExpectedEntry || hasExpectedEvent || expectedSet.size === 0;
+}
+
+function extractRawEventDataFromError(error) {
+  const streamedRaw = error?.__streamedText;
+  if (typeof streamedRaw === "string" && streamedRaw.trim()) {
+    return streamedRaw;
+  }
+
+  const responseRaw = error?.response?.data;
+  if (typeof responseRaw === "string" && responseRaw.trim()) {
+    return responseRaw;
+  }
+
+  const requestRaw = error?.request?.responseText;
+  if (typeof requestRaw === "string" && requestRaw.trim()) {
+    return requestRaw;
+  }
+
+  return "";
+}
+
 export const cameraSettingsService = {
-  getRealtimeEventStatus: async ({ channelId, eventCodes = [] }) => {
-    const channelCandidates = [Number(channelId), Number(channelId) - 1].filter(
-      (value, index, array) =>
-        Number.isFinite(value) && value >= 0 && array.indexOf(value) === index,
+  getVideoMetadataConfig: async (channelId = 1) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Math.max(cleanId - 1, 0);
+    await warmupDigestChallenge();
+
+    // Fetch 1: VideoAnalyseRule per channel  (rules + per-rule enable)
+    // Fetch 2: VideoMetadata per channel      (global enable — NVR AI by Recorder)
+    // Fetch 3: VideoAnalyse per channel       (master AI enable — beberapa firmware)
+    // Fetch 4: VideoAnalyseGlobal per channel (global enable — IPC/NVR hybrid)
+    // Fetch 5: VideoAnalyseRule all channels  (fallback rules)
+    // Fetch 6: VideoMetadata all channels     (fallback global enable)
+    const [
+      ruleResult,
+      ruleFallbackResult,
+      vaGlobalFallbackResult,
+    ] = await Promise.allSettled([
+      ApiClient.get(`/cgi-bin/configManager.cgi?action=getConfig&name=${encodeURIComponent(`VideoAnalyseRule[${channelIndex}]`)}`),
+      ApiClient.get("/cgi-bin/configManager.cgi?action=getConfig&name=VideoAnalyseRule"),
+      ApiClient.get("/cgi-bin/configManager.cgi?action=getConfig&name=VideoAnalyseGlobal"),
+    ]);
+
+    const safeParseConfig = (result) => {
+      if (result.status !== "fulfilled") return {};
+      const rawData = result.value?.data;
+      // Jika response adalah error payload (e.g. "Error=System busy"), skip
+      if (isErrorPayload(rawData)) return {};
+      return normalizeDahuaConfigMap(rawData) || {};
+    };
+
+    const ruleMapPrimary       = safeParseConfig(ruleResult);
+    const ruleMapFallback      = safeParseConfig(ruleFallbackResult);
+    const vaGlobalMap = safeParseConfig(vaGlobalFallbackResult);
+
+    // Merge: fallback sebagai base, primary override
+    const ruleMap      = { ...ruleMapFallback,     ...ruleMapPrimary };
+
+    if (
+      Object.keys(ruleMap).length === 0
+    ) {
+      throw new Error("Video metadata config tidak tersedia dari endpoint VideoAnalyseRule.");
+    }
+
+    const metadataRules = [];
+    const addedRuleIndexes = new Set();
+
+    const tryAddMetadataRule = (ruleIndex, typeValue, enableKey, nameKey, ruleNameKey) => {
+      if (addedRuleIndexes.has(ruleIndex)) {
+        return;
+      }
+      const typeStr = String(typeValue || "").trim();
+      const ruleName = String(ruleMap[nameKey] || ruleMap[ruleNameKey] || "").trim();
+      if (!isVideoMetadataRuleToken(typeStr) && !isVideoMetadataRuleToken(ruleName)) {
+        return;
+      }
+      const enabled = toBoolean(ruleMap[enableKey] ?? "false");
+      addedRuleIndexes.add(ruleIndex);
+      metadataRules.push({
+        index: ruleIndex,
+        type: typeStr,
+        name: ruleName || typeStr || `Metadata Rule ${ruleIndex + 1}`,
+        enabled,
+        alarmType: "All",
+      });
+    };
+
+    Object.entries(ruleMap).forEach(([key, value]) => {
+      // Format 1: VideoAnalyseRule[cfgIdx][ruleIdx].Type  (IPC standard)
+      const fmt1 = key.match(/^VideoAnaly(?:se|ze)Rule\[(\d+)\]\[(\d+)\]\.Type$/i);
+      if (fmt1) {
+        const cfgIndex = Number(fmt1[1]);
+        const ruleIndex = Number(fmt1[2]);
+        if (Number.isFinite(cfgIndex) && cfgIndex === channelIndex && Number.isFinite(ruleIndex)) {
+          tryAddMetadataRule(
+            ruleIndex,
+            String(value || "").trim(),
+            `VideoAnalyseRule[${channelIndex}][${ruleIndex}].Enable`,
+            `VideoAnalyseRule[${channelIndex}][${ruleIndex}].Name`,
+            `VideoAnalyseRule[${channelIndex}][${ruleIndex}].RuleName`,
+          );
+        }
+        return;
+      }
+
+      // Format 2: VideoAnalyseRule[cfgIdx][ruleIdx].Class  (NVR AI by Recorder - dari debug data nyata)
+      const fmt2 = key.match(/^VideoAnaly(?:se|ze)Rule\[(\d+)\]\[(\d+)\]\.Class$/i);
+      if (fmt2) {
+        const cfgIndex = Number(fmt2[1]);
+        const ruleIndex = Number(fmt2[2]);
+        if (Number.isFinite(cfgIndex) && cfgIndex === channelIndex && Number.isFinite(ruleIndex)) {
+          tryAddMetadataRule(
+            ruleIndex,
+            String(value || "").trim(),
+            `VideoAnalyseRule[${channelIndex}][${ruleIndex}].Enable`,
+            `VideoAnalyseRule[${channelIndex}][${ruleIndex}].Name`,
+            `VideoAnalyseRule[${channelIndex}][${ruleIndex}].RuleName`,
+          );
+        }
+        return;
+      }
+
+      // Format 3: VideoAnalyseRule[cfgIdx].Rule[ruleIdx].Type  (NVR legacy)
+      const fmt3 = key.match(/^VideoAnaly(?:se|ze)Rule\[(\d+)\]\.Rule\[(\d+)\]\.Type$/i);
+      if (fmt3) {
+        const cfgIndex = Number(fmt3[1]);
+        const ruleIndex = Number(fmt3[2]);
+        if (Number.isFinite(cfgIndex) && cfgIndex === channelIndex && Number.isFinite(ruleIndex)) {
+          tryAddMetadataRule(
+            ruleIndex,
+            String(value || "").trim(),
+            `VideoAnalyseRule[${channelIndex}].Rule[${ruleIndex}].Enable`,
+            `VideoAnalyseRule[${channelIndex}].Rule[${ruleIndex}].Name`,
+            `VideoAnalyseRule[${channelIndex}].Rule[${ruleIndex}].RuleName`,
+          );
+        }
+      }
+    });
+
+    metadataRules.sort((a, b) => a.index - b.index);
+    const metadataCoreOrder = { people: 0, motor: 1, non_motor: 2 };
+    const metadataCoreNameMap = {
+      people: "People Detection",
+      motor: "Motor Vehicle Detection",
+      non_motor: "Non-motor Vehicle Detection",
+    };
+    const metadataCoreRules = metadataRules
+      .map((rule) => {
+        const coreKey = getVideoMetadataCoreRuleKey(rule?.type || rule?.name);
+        return { ...rule, coreKey };
+      })
+      .filter((rule) => Boolean(rule.coreKey))
+      .sort((a, b) => metadataCoreOrder[a.coreKey] - metadataCoreOrder[b.coreKey])
+      .map((rule) => ({
+        ...rule,
+        name: metadataCoreNameMap[rule.coreKey] || rule.name,
+      }));
+    const metadataRulesForUi = metadataCoreRules.length > 0 ? metadataCoreRules : metadataRules;
+
+    const resolvedRuleIndexes = collectAvailableConfigIndexes(ruleMap, "VideoAnaly(?:se|ze)Rule");
+    const resolvedChannelIndex = resolvedRuleIndexes.includes(channelIndex)
+      ? channelIndex
+      : (resolvedRuleIndexes[0] ?? channelIndex);
+
+    const globalSceneResult = extractVideoMetadataGlobalFromSceneTypeList(
+      vaGlobalMap,
+      resolvedChannelIndex,
     );
 
-    const request = (queryString) =>
-      ApiClient.get(`/cgi-bin/eventManager.cgi?${queryString}`, {
-        timeout: 100000,
-        responseType: "text",
-        transformResponse: [(value) => value],
-        headers: {
-          "Cache-Control": "no-cache, no-store",
-          Pragma: "no-cache",
-        },
-      });
+    const resolvedGlobalRules = collectVideoMetadataGlobalRulesFromRuleMap(
+      ruleMap,
+      resolvedChannelIndex,
+    );
+    const resolvedExplicitGlobalEnable = resolvedGlobalRules.length > 0
+      ? resolvedGlobalRules.some((rule) => rule.enabled)
+      : null;
+
+    const earlyResolvedEnabled = globalSceneResult.found
+      ? Boolean(globalSceneResult.enabled)
+      : (resolvedExplicitGlobalEnable ?? false);
+    const earlyResolvedSource = globalSceneResult.found
+      ? "VideoAnalyseGlobal.Scene.TypeList"
+      : (resolvedExplicitGlobalEnable !== null
+        ? "VideoAnalyseRule.Class=Normal.Enable"
+        : "global.notFound.defaultFalse");
+
+    return {
+      channelId: cleanId,
+      channelIndex,
+      effectiveChannelIndex: resolvedChannelIndex,
+      enabled: earlyResolvedEnabled,
+      source: earlyResolvedSource,
+      ruleIndexes: metadataRulesForUi.map((rule) => rule.index),
+      rules: metadataRulesForUi,
+      raw: { ruleMap, vaGlobalMap, globalSceneResult },
+    };
+  },
+
+  setVideoMetadataEnable: async ({
+    channelId,
+    enabled,
+    channelIndexOverride = null,
+  }) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Number.isFinite(Number(channelIndexOverride))
+      ? Math.max(Number(channelIndexOverride), 0)
+      : Math.max(cleanId - 1, 0);
+
+    const enableStr = enabled ? "true" : "false";
+    const params = { action: "setConfig" };
+
+    params.name = "VideoAnalyseGlobal";
+    params[`VideoAnalyseGlobal[${channelIndex}].Scene.TypeList[0]`] = enabled ? "Normal" : "";
+    params[`VideoAnalyseGlobal[${channelIndex}].Scene.Type`] = enabled ? "ObjectDetect" : "";
+
+    const query = buildConfigManagerQuery(params);
+    await warmupDigestChallenge();
+    const response = await ApiClient.get(`/cgi-bin/configManager.cgi?${query}`);
+    return response?.data;
+  },
+
+  getMotionDetectConfig: async (channelId = 1) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Math.max(cleanId - 1, 0);
+    await warmupDigestChallenge();
+    const response = await ApiClient.get("/cgi-bin/configManager.cgi?action=getConfig&name=MotionDetect");
+    const normalized = normalizeDahuaConfigMap(response?.data);
+
+    return {
+      channelId: cleanId,
+      channelIndex,
+      enabled: toBoolean(normalized[`MotionDetect[${channelIndex}].Enable`]),
+      raw: normalized,
+    };
+  },
+
+  setMotionDetectEnable: async ({
+    channelId,
+    enabled,
+    channelIndexOverride = null,
+  }) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Number.isFinite(Number(channelIndexOverride))
+      ? Math.max(Number(channelIndexOverride), 0)
+      : Math.max(cleanId - 1, 0);
+    const query = buildConfigManagerQuery({
+      action: "setConfig",
+      name: "MotionDetect",
+      [`MotionDetect[${channelIndex}].Enable`]: enabled ? "true" : "false",
+    });
+    await warmupDigestChallenge();
+    const response = await ApiClient.get(`/cgi-bin/configManager.cgi?${query}`);
+    return response?.data;
+  },
+
+  getSmartMotionConfig: async (channelId = 1) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Math.max(cleanId - 1, 0);
+    await warmupDigestChallenge();
+    const response = await ApiClient.get("/cgi-bin/configManager.cgi?action=getConfig&name=SmartMotionDetect");
+    const normalized = normalizeDahuaConfigMap(response?.data);
+
+    return {
+      channelId: cleanId,
+      channelIndex,
+      enabled: toBoolean(normalized[`SmartMotionDetect[${channelIndex}].Enable`]),
+      sensitivity: String(normalized[`SmartMotionDetect[${channelIndex}].Sensitivity`] || ""),
+      objectTypes: {
+        human: toBoolean(normalized[`SmartMotionDetect[${channelIndex}].ObjectTypes.Human`]),
+        vehicle: toBoolean(normalized[`SmartMotionDetect[${channelIndex}].ObjectTypes.Vehicle`]),
+      },
+      raw: normalized,
+    };
+  },
+
+  setSmartMotionEnable: async ({
+    channelId,
+    enabled,
+    channelIndexOverride = null,
+  }) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Number.isFinite(Number(channelIndexOverride))
+      ? Math.max(Number(channelIndexOverride), 0)
+      : Math.max(cleanId - 1, 0);
+    const nextValue = enabled ? "true" : "false";
+    const query = buildConfigManagerQuery({
+      action: "setConfig",
+      name: "SmartMotionDetect",
+      [`SmartMotionDetect[${channelIndex}].Enable`]: nextValue,
+    });
+
+    await warmupDigestChallenge();
+    const response = await ApiClient.get(`/cgi-bin/configManager.cgi?${query}`);
+    return response?.data;
+  },
+
+  setSmartMotionConfig: async ({
+    channelId,
+    channelIndexOverride = null,
+    enabled,
+    sensitivity,
+    objectTypes,
+  }) => {
+    const cleanId = parseInt(String(channelId).replace(/\D/g, ""), 10) || 1;
+    const channelIndex = Number.isFinite(Number(channelIndexOverride))
+      ? Math.max(Number(channelIndexOverride), 0)
+      : Math.max(cleanId - 1, 0);
+
+    const normalizedSensitivity = ["Low", "Middle", "High"].includes(String(sensitivity || ""))
+      ? String(sensitivity)
+      : "Middle";
+
+    const params = {
+      action: "setConfig",
+      name: "SmartMotionDetect",
+      [`SmartMotionDetect[${channelIndex}].Enable`]: enabled ? "true" : "false",
+      [`SmartMotionDetect[${channelIndex}].Sensitivity`]: normalizedSensitivity,
+      [`SmartMotionDetect[${channelIndex}].ObjectTypes.Human`]: objectTypes?.human ? "true" : "false",
+      [`SmartMotionDetect[${channelIndex}].ObjectTypes.Vehicle`]: objectTypes?.vehicle ? "true" : "false",
+    };
+
+    const query = buildConfigManagerQuery(params);
+    await warmupDigestChallenge();
+    const response = await ApiClient.get(`/cgi-bin/configManager.cgi?${query}`);
+    return response?.data;
+  },
+
+  getRealtimeEventStatus: async ({ channelId, eventCodes = [], strictChannel = false }) => {
+    const channelCandidates = (strictChannel
+      ? [Number(channelId)]
+      : [Number(channelId), Number(channelId) - 1]
+    ).filter(
+      (value, index, array) =>
+        Number.isFinite(value) && value > 0 && array.indexOf(value) === index,
+    );
+
+    const request = async (queryString) => {
+      let streamedText = "";
+      const controller = new AbortController();
+      const timer = setTimeout(() => {
+        controller.abort("event-attach-window-timeout");
+      }, 4500);
+
+      try {
+        const response = await ApiClient.get(`/cgi-bin/eventManager.cgi?${queryString}`, {
+          timeout: 0,
+          signal: controller.signal,
+          responseType: "text",
+          transformResponse: [(value) => value],
+          onDownloadProgress: (progressEvent) => {
+            const fromTarget = progressEvent?.event?.target?.responseText;
+            const fromCurrent = progressEvent?.currentTarget?.responseText;
+            const fromCurrentResponse = progressEvent?.currentTarget?.response;
+            const latest = fromTarget || fromCurrent || fromCurrentResponse || "";
+            if (typeof latest === "string" && latest.length > 0) {
+              streamedText = latest;
+              if (/Code=([A-Za-z0-9_]+);action=/i.test(streamedText)) {
+                controller.abort("event-attach-enough-data");
+              }
+            }
+          },
+          headers: {
+            "Cache-Control": "no-cache, no-store",
+            Pragma: "no-cache",
+          },
+        });
+
+        return {
+          ...response,
+          data: streamedText || String(response?.data || ""),
+        };
+      } catch (error) {
+        error.__streamedText = streamedText;
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
 
     try {
       await warmupDigestChallenge();
       let lastError = null;
+      let lastSuccessPayload = null;
+      const expectedSet = new Set((Array.isArray(eventCodes) ? eventCodes : []).map((code) => String(code || "").toLowerCase()));
 
       for (const channelCandidate of channelCandidates) {
-        const query = buildAttachQuery({
+        const queries = buildAttachQueryVariants({
           channelId: channelCandidate,
           eventCodes,
         });
-        const variants = [query.raw, query.encoded];
+        const variants = queries;
 
         for (const variant of variants) {
           try {
             const response = await request(variant);
-            const raw = String(response?.data || "");
-            return {
-              events: parseAttachEventStream(raw, eventCodes),
-              raw,
-              fetchedAt: new Date().toISOString(),
-            };
+            const payload = buildRealtimeEventPayload(response?.data, eventCodes);
+            if (payloadHasExpectedEvent(payload, expectedSet)) {
+              return payload;
+            }
+            lastSuccessPayload = payload;
           } catch (error) {
+            const raw = extractRawEventDataFromError(error);
+            if (raw) {
+              const payload = buildRealtimeEventPayload(raw, eventCodes);
+              if (payloadHasExpectedEvent(payload, expectedSet)) {
+                return payload;
+              }
+              if ((payload.entries || []).length > 0 || Object.keys(payload.events || {}).length > 0) {
+                lastSuccessPayload = payload;
+              }
+            }
             lastError = error;
           }
         }
       }
 
+      if (lastSuccessPayload) {
+        return lastSuccessPayload;
+      }
       throw lastError || new Error("Gagal attach ke eventManager.");
     } catch (firstError) {
       const status = Number(firstError?.response?.status || 0);
@@ -748,30 +1368,49 @@ export const cameraSettingsService = {
 
       await warmupDigestChallenge();
       let retryLastError = null;
+      let retryLastSuccessPayload = null;
+      const expectedSet = new Set((Array.isArray(eventCodes) ? eventCodes : []).map((code) => String(code || "").toLowerCase()));
 
       for (const channelCandidate of channelCandidates) {
-        const query = buildAttachQuery({
+        const queries = buildAttachQueryVariants({
           channelId: channelCandidate,
           eventCodes,
         });
-        const variants = [query.raw, query.encoded];
+        const variants = queries;
 
         for (const variant of variants) {
           try {
             const retryResponse = await request(variant);
-            const retryRaw = String(retryResponse?.data || "");
-            return {
-              events: parseAttachEventStream(retryRaw, eventCodes),
-              raw: retryRaw,
-              fetchedAt: new Date().toISOString(),
-            };
+            const payload = buildRealtimeEventPayload(retryResponse?.data, eventCodes);
+            if (payloadHasExpectedEvent(payload, expectedSet)) {
+              return payload;
+            }
+            retryLastSuccessPayload = payload;
           } catch (retryError) {
+            const raw = extractRawEventDataFromError(retryError);
+            if (raw) {
+              const payload = buildRealtimeEventPayload(raw, eventCodes);
+              if (payloadHasExpectedEvent(payload, expectedSet)) {
+                return payload;
+              }
+              if ((payload.entries || []).length > 0 || Object.keys(payload.events || {}).length > 0) {
+                retryLastSuccessPayload = payload;
+              }
+            }
             retryLastError = retryError;
           }
         }
       }
 
-      throw retryLastError || firstError;
+      if (retryLastSuccessPayload) {
+        return retryLastSuccessPayload;
+      }
+      return {
+        events: {},
+        entries: [],
+        raw: extractRawEventDataFromError(retryLastError || firstError),
+        fetchedAt: new Date().toISOString(),
+      };
     }
   },
 

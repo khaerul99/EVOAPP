@@ -19,16 +19,8 @@ function Switch({ checked, onChange }) {
   );
 }
 
-function ModeTab({ label, active, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-xl border px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${active ? "border-navy bg-navy text-white" : "border-navy/15 bg-white text-navy/60 hover:bg-slate-50"}`}
-    >
-      {label}
-    </button>
-  );
+function formatVideoMetadataRuleName(rule = {}) {
+  return String(rule?.type || rule?.name || "Unknown");
 }
 
 const CameraSettings = () => {
@@ -43,7 +35,6 @@ const CameraSettings = () => {
   const setActiveMenu = useStore((state) => state.setActiveMenu);
   const startRealtimePolling = useStore((state) => state.startRealtimePolling);
   const stopRealtimePolling = useStore((state) => state.stopRealtimePolling);
-  const [activeMode, setActiveMode] = useState("data");
   const [peopleTab, setPeopleTab] = useState("People Counting");
   const [peopleConfig, setPeopleConfig] = useState({
     channelIndex: 0,
@@ -57,6 +48,49 @@ const CameraSettings = () => {
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleError, setPeopleError] = useState("");
   const [addRuleOpen, setAddRuleOpen] = useState(false);
+  const [smartMotionConfig, setSmartMotionConfig] = useState({
+    channelIndex: 0,
+    enabled: false,
+    sensitivity: "",
+    objectTypes: {
+      human: false,
+      vehicle: false,
+    },
+  });
+  const [smartMotionLoading, setSmartMotionLoading] = useState(false);
+  const [smartMotionError, setSmartMotionError] = useState("");
+  const [smartMotionDraft, setSmartMotionDraft] = useState({
+    enabled: false,
+    sensitivity: "Middle",
+    objectTypes: {
+      human: false,
+      vehicle: false,
+    },
+  });
+  const [motionDetectionConfig, setMotionDetectionConfig] = useState({
+    channelIndex: 0,
+    enabled: false,
+  });
+  const [motionDetectionDraft, setMotionDetectionDraft] = useState({
+    enabled: false,
+  });
+  const [motionDetectionLoading, setMotionDetectionLoading] = useState(false);
+  const [motionDetectionError, setMotionDetectionError] = useState("");
+  const [videoMetadataConfig, setVideoMetadataConfig] = useState({
+    channelIndex: 0,
+    enabled: false,
+    source: "",
+    ruleIndexes: [],
+    rules: [],
+    peopleFlowStatistics: false,
+  });
+  const [videoMetadataDraft, setVideoMetadataDraft] = useState({
+    enabled: false,
+    peopleFlowStatistics: false,
+  });
+  const [videoMetadataRuleDrafts, setVideoMetadataRuleDrafts] = useState([]);
+  const [videoMetadataLoading, setVideoMetadataLoading] = useState(false);
+  const [videoMetadataError, setVideoMetadataError] = useState("");
   const channelIsSelected = Boolean(activeChannel);
 
   useEffect(() => {
@@ -159,6 +193,142 @@ const CameraSettings = () => {
     }
     reloadPeopleConfig({ showLoading: true });
   }, [activeChannel, activeConfig, channelIsSelected, reloadPeopleConfig]);
+
+  const reloadSmartMotionConfig = useCallback(async ({ showLoading = true } = {}) => {
+    if (!channelIsSelected || activeConfig?.key !== "smartMotion") {
+      return;
+    }
+    const channelNumber =
+      parseInt(String(activeChannel).replace(/\D/g, "")) || 1;
+    if (showLoading) {
+      setSmartMotionLoading(true);
+    }
+    try {
+      const result = await cameraSettingsService.getSmartMotionConfig(channelNumber);
+      setSmartMotionConfig({
+        channelIndex: Number.isFinite(Number(result?.channelIndex))
+          ? Number(result.channelIndex)
+          : Math.max(channelNumber - 1, 0),
+        enabled: Boolean(result?.enabled),
+        sensitivity: String(result?.sensitivity || ""),
+        objectTypes: {
+          human: Boolean(result?.objectTypes?.human),
+          vehicle: Boolean(result?.objectTypes?.vehicle),
+        },
+      });
+      setSmartMotionDraft({
+        enabled: Boolean(result?.enabled),
+        sensitivity: String(result?.sensitivity || "Middle"),
+        objectTypes: {
+          human: Boolean(result?.objectTypes?.human),
+          vehicle: Boolean(result?.objectTypes?.vehicle),
+        },
+      });
+      setSmartMotionError("");
+    } catch {
+      setSmartMotionError("Gagal mengambil config Smart Motion.");
+    } finally {
+      if (showLoading) {
+        setSmartMotionLoading(false);
+      }
+    }
+  }, [activeChannel, activeConfig?.key, channelIsSelected]);
+
+  useEffect(() => {
+    if (!channelIsSelected || activeConfig?.key !== "smartMotion") {
+      return;
+    }
+    reloadSmartMotionConfig({ showLoading: true });
+  }, [activeChannel, activeConfig?.key, channelIsSelected, reloadSmartMotionConfig]);
+
+  const reloadMotionDetectionConfig = useCallback(async ({ showLoading = true } = {}) => {
+    if (!channelIsSelected || activeConfig?.key !== "motionDetection") {
+      return;
+    }
+    const channelNumber = parseInt(String(activeChannel).replace(/\D/g, ""), 10) || 1;
+    if (showLoading) {
+      setMotionDetectionLoading(true);
+    }
+    try {
+      const result = await cameraSettingsService.getMotionDetectConfig(channelNumber);
+      setMotionDetectionConfig({
+        channelIndex: Number.isFinite(Number(result?.channelIndex))
+          ? Number(result.channelIndex)
+          : Math.max(channelNumber - 1, 0),
+        enabled: Boolean(result?.enabled),
+      });
+      setMotionDetectionDraft({
+        enabled: Boolean(result?.enabled),
+      });
+      setMotionDetectionError("");
+    } catch {
+      setMotionDetectionError("Gagal mengambil config Motion Detection.");
+    } finally {
+      if (showLoading) {
+        setMotionDetectionLoading(false);
+      }
+    }
+  }, [activeChannel, activeConfig?.key, channelIsSelected]);
+
+  useEffect(() => {
+    if (!channelIsSelected || activeConfig?.key !== "motionDetection") {
+      return;
+    }
+    reloadMotionDetectionConfig({ showLoading: true });
+  }, [activeChannel, activeConfig?.key, channelIsSelected, reloadMotionDetectionConfig]);
+
+  const reloadVideoMetadataConfig = useCallback(async ({ showLoading = true } = {}) => {
+    if (!channelIsSelected || activeConfig?.key !== "videoMetadata") {
+      return;
+    }
+    const channelNumber = parseInt(String(activeChannel).replace(/\D/g, ""), 10) || 1;
+    if (showLoading) {
+      setVideoMetadataLoading(true);
+    }
+    try {
+      const result = await cameraSettingsService.getVideoMetadataConfig(channelNumber);
+      const loadedRules = Array.isArray(result?.rules) ? result.rules : [];
+      setVideoMetadataConfig({
+        channelIndex: Number.isFinite(Number(result?.effectiveChannelIndex))
+          ? Number(result.effectiveChannelIndex)
+          : Number.isFinite(Number(result?.channelIndex))
+            ? Number(result.channelIndex)
+          : Math.max(channelNumber - 1, 0),
+        enabled: Boolean(result?.enabled),
+        source: String(result?.source || ""),
+        ruleIndexes: Array.isArray(result?.ruleIndexes) ? result.ruleIndexes : [],
+        rules: loadedRules,
+        // peopleFlowStatistics tidak ada di API – default false per load
+        peopleFlowStatistics: false,
+      });
+      setVideoMetadataDraft({
+        enabled: Boolean(result?.enabled),
+        // Reset ke false setiap load agar tidak dianggap dirty
+        peopleFlowStatistics: false,
+      });
+      setVideoMetadataRuleDrafts(
+        loadedRules.map((rule) => ({
+          index: Number(rule?.index),
+          enabled: Boolean(rule?.enabled),
+          faceEnabled: false,
+        })),
+      );
+      setVideoMetadataError("");
+    } catch {
+      setVideoMetadataError("Gagal mengambil config Video Metadata.");
+    } finally {
+      if (showLoading) {
+        setVideoMetadataLoading(false);
+      }
+    }
+  }, [activeChannel, activeConfig?.key, channelIsSelected]);
+
+  useEffect(() => {
+    if (!channelIsSelected || activeConfig?.key !== "videoMetadata") {
+      return;
+    }
+    reloadVideoMetadataConfig({ showLoading: true });
+  }, [activeChannel, activeConfig?.key, channelIsSelected, reloadVideoMetadataConfig]);
 
   const handleTogglePeopleEnable = async (nextValue) => {
     if (!channelIsSelected) {
@@ -265,6 +435,137 @@ const CameraSettings = () => {
     }
   };
 
+  const handleToggleSmartMotionEnable = async (nextValue) => {
+    setSmartMotionDraft((prev) => ({ ...prev, enabled: nextValue }));
+  };
+
+  const handleSaveSmartMotionConfig = async () => {
+    if (!channelIsSelected) {
+      return;
+    }
+    const channelNumber = Number(String(activeChannel).replace("ch", ""));
+    setSmartMotionLoading(true);
+    setSmartMotionError("");
+    try {
+      await cameraSettingsService.setSmartMotionConfig({
+        channelId: channelNumber,
+        channelIndexOverride: smartMotionConfig.channelIndex,
+        enabled: Boolean(smartMotionDraft.enabled),
+        sensitivity: smartMotionDraft.sensitivity,
+        objectTypes: smartMotionDraft.objectTypes,
+      });
+      await reloadSmartMotionConfig({ showLoading: false });
+    } catch {
+      setSmartMotionError("Gagal menyimpan config Smart Motion.");
+    } finally {
+      setSmartMotionLoading(false);
+    }
+  };
+
+  const handleCancelSmartMotionChanges = () => {
+    setSmartMotionDraft({
+      enabled: Boolean(smartMotionConfig.enabled),
+      sensitivity: String(smartMotionConfig.sensitivity || "Middle"),
+      objectTypes: {
+        human: Boolean(smartMotionConfig.objectTypes?.human),
+        vehicle: Boolean(smartMotionConfig.objectTypes?.vehicle),
+      },
+    });
+    setSmartMotionError("");
+  };
+
+  const isSmartMotionDirty = useMemo(() => {
+    return (
+      Boolean(smartMotionDraft.enabled) !== Boolean(smartMotionConfig.enabled)
+      || String(smartMotionDraft.sensitivity || "Middle") !== String(smartMotionConfig.sensitivity || "Middle")
+      || Boolean(smartMotionDraft.objectTypes?.human) !== Boolean(smartMotionConfig.objectTypes?.human)
+      || Boolean(smartMotionDraft.objectTypes?.vehicle) !== Boolean(smartMotionConfig.objectTypes?.vehicle)
+    );
+  }, [smartMotionDraft, smartMotionConfig]);
+
+  const handleSaveMotionDetectionConfig = async () => {
+    if (!channelIsSelected) {
+      return;
+    }
+    const channelNumber = Number(String(activeChannel).replace("ch", ""));
+    setMotionDetectionLoading(true);
+    setMotionDetectionError("");
+    try {
+      await cameraSettingsService.setMotionDetectEnable({
+        channelId: channelNumber,
+        enabled: Boolean(motionDetectionDraft.enabled),
+        channelIndexOverride: motionDetectionConfig.channelIndex,
+      });
+      await reloadMotionDetectionConfig({ showLoading: false });
+    } catch {
+      setMotionDetectionError("Gagal menyimpan config Motion Detection.");
+    } finally {
+      setMotionDetectionLoading(false);
+    }
+  };
+
+  const handleCancelMotionDetectionChanges = () => {
+    setMotionDetectionDraft({
+      enabled: Boolean(motionDetectionConfig.enabled),
+    });
+    setMotionDetectionError("");
+  };
+
+  const isMotionDetectionDirty = useMemo(() => {
+    return Boolean(motionDetectionDraft.enabled) !== Boolean(motionDetectionConfig.enabled);
+  }, [motionDetectionDraft.enabled, motionDetectionConfig.enabled]);
+
+  const handleSaveVideoMetadataConfig = async () => {
+    if (!channelIsSelected) {
+      return;
+    }
+    const channelNumber = Number(String(activeChannel).replace("ch", ""));
+    setVideoMetadataLoading(true);
+    setVideoMetadataError("");
+    try {
+      await cameraSettingsService.setVideoMetadataEnable({
+        channelId: channelNumber,
+        enabled: Boolean(videoMetadataDraft.enabled),
+        channelIndexOverride: videoMetadataConfig.channelIndex,
+        ruleIndexes: videoMetadataConfig.ruleIndexes,
+        ruleStates: videoMetadataRuleDrafts,
+      });
+      await reloadVideoMetadataConfig({ showLoading: false });
+    } catch {
+      setVideoMetadataError("Gagal menyimpan config Video Metadata.");
+    } finally {
+      setVideoMetadataLoading(false);
+    }
+  };
+
+  const handleCancelVideoMetadataChanges = () => {
+    setVideoMetadataDraft({
+      enabled: Boolean(videoMetadataConfig.enabled),
+      // Kembalikan ke nilai tersimpan di config
+      peopleFlowStatistics: Boolean(videoMetadataConfig.peopleFlowStatistics),
+    });
+    setVideoMetadataRuleDrafts(
+      (Array.isArray(videoMetadataConfig.rules) ? videoMetadataConfig.rules : []).map((rule) => ({
+        index: Number(rule?.index),
+        enabled: Boolean(rule?.enabled),
+        faceEnabled: false,
+      })),
+    );
+    setVideoMetadataError("");
+  };
+
+  const isVideoMetadataDirty = useMemo(() => {
+    const globalDirty = Boolean(videoMetadataDraft.enabled) !== Boolean(videoMetadataConfig.enabled);
+    // Bandingkan draft vs nilai config yang tersimpan (bukan hardcode false)
+    const peopleFlowDirty = Boolean(videoMetadataDraft.peopleFlowStatistics) !== Boolean(videoMetadataConfig.peopleFlowStatistics);
+    const currentRules = Array.isArray(videoMetadataConfig.rules) ? videoMetadataConfig.rules : [];
+    const rulesDirty = currentRules.some((rule) => {
+      const draft = videoMetadataRuleDrafts.find((entry) => Number(entry.index) === Number(rule.index));
+      return Boolean(draft?.enabled) !== Boolean(rule.enabled);
+    });
+    return globalDirty || rulesDirty || peopleFlowDirty;
+  }, [videoMetadataDraft.enabled, videoMetadataDraft.peopleFlowStatistics, videoMetadataConfig.enabled, videoMetadataConfig.peopleFlowStatistics, videoMetadataConfig.rules, videoMetadataRuleDrafts]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -288,11 +589,19 @@ const CameraSettings = () => {
           <button
             type="button"
             onClick={() =>
-              activeConfig?.panelType === "peopleCounting" &&
-              reloadPeopleConfig()
+              activeConfig?.panelType === "peopleCounting"
+                ? reloadPeopleConfig()
+                : activeConfig?.key === "smartMotion"
+                  ? reloadSmartMotionConfig()
+                  : activeConfig?.key === "motionDetection"
+                    ? reloadMotionDetectionConfig()
+                    : activeConfig?.key === "videoMetadata"
+                      ? reloadVideoMetadataConfig()
+                  : null
             }
             disabled={
-              !channelIsSelected || activeConfig?.panelType !== "peopleCounting"
+              !channelIsSelected
+              || (activeConfig?.panelType !== "peopleCounting" && activeConfig?.key !== "smartMotion" && activeConfig?.key !== "motionDetection" && activeConfig?.key !== "videoMetadata")
             }
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold bg-white border rounded-xl border-navy/10 text-navy/75 hover:bg-slate-50"
           >
@@ -363,7 +672,7 @@ const CameraSettings = () => {
           </div>
         </aside>
 
-        <section className="p-5 bg-white border rounded-2xl border-navy/10">
+        <section className="relative p-5 pb-20 bg-white border rounded-2xl border-navy/10">
           {!channelIsSelected && (
             <div className="px-4 py-3 mb-4 text-sm font-semibold border rounded-xl border-amber-200 bg-amber-50 text-amber-700">
               Pilih channel terlebih dahulu untuk membuka pengaturan.
@@ -391,42 +700,11 @@ const CameraSettings = () => {
               </h2>
             </div>
 
-            <div className="flex items-center gap-2">
-              <ModeTab
-                label="Data"
-                active={activeMode === "data"}
-                onClick={() => channelIsSelected && setActiveMode("data")}
-              />
-              <ModeTab
-                label="Control"
-                active={activeMode === "control"}
-                onClick={() => channelIsSelected && setActiveMode("control")}
-              />
-            </div>
+            <div />
           </div>
 
-          <div className="px-4 py-3 mb-4 border rounded-xl border-navy/10 bg-slate-50">
-            <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">
-              Endpoint Utama
-            </p>
-            <p className="mt-1 font-mono text-xs font-semibold text-navy/80">
-              {activeConfig.endpoint}
-            </p>
-            {activeConfig?.panelType === "peopleCounting" &&
-              peopleConfig.sourceName && (
-                <p className="mt-1 font-mono text-[11px] font-semibold text-navy/55">
-                  source: {peopleConfig.sourceName} | idx:{" "}
-                  {peopleConfig.channelIndex}
-                </p>
-              )}
-            <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-navy/45">
-              Kode Event
-            </p>
-            <p className="mt-1 text-xs font-semibold text-navy/80">
-              {activeConfig.eventCodes.join(", ")}
-            </p>
-          </div>
-          {activeConfig?.panelType !== "peopleCounting" && (
+      
+          {activeConfig?.panelType !== "peopleCounting" && activeConfig?.key !== "smartMotion" && activeConfig?.key !== "motionDetection" && activeConfig?.key !== "videoMetadata" && (
             <div className="px-4 py-3 mb-4 bg-white border rounded-xl border-navy/10">
               <p className="text-sm font-semibold text-navy/70">
                 Data menu ini hanya ditampilkan jika endpoint API tersedia.
@@ -437,7 +715,7 @@ const CameraSettings = () => {
             </div>
           )}
 
-          {activeConfig?.panelType !== "peopleCounting" && (
+          {activeConfig?.panelType !== "peopleCounting" && activeConfig?.key !== "smartMotion" && activeConfig?.key !== "motionDetection" && activeConfig?.key !== "videoMetadata" && (
             <div className="flex items-center justify-between px-4 py-3 mb-4 border rounded-xl border-navy/10 bg-slate-50">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">
@@ -565,7 +843,7 @@ const CameraSettings = () => {
                             />
                             <button
                               type="button"
-                              className="text-navy/50 transition-colors hover:text-danger"
+                              className="transition-colors text-navy/50 hover:text-danger"
                               title="Delete rule"
                               onClick={() => handleDeletePeopleRule(rule)}
                             >
@@ -585,21 +863,314 @@ const CameraSettings = () => {
                 </p>
               )}
             </div>
-          ) : (
-            <div className="space-y-2">
-              {activeMode === "data" && (
-                <p className="px-4 py-3 text-sm font-semibold border rounded-xl border-navy/10 bg-slate-50 text-navy/60">
-                  Data API untuk menu ini belum diimplementasikan.
+          ) : activeConfig?.key === "smartMotion" ? (
+            <div className="flex min-h-[360px] flex-col gap-4">
+              <div className="flex items-center justify-between px-4 py-3 border rounded-xl border-navy/10 bg-slate-50">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">
+                    Enable
+                  </p>
+                  <p className="text-sm font-semibold text-navy/70">
+                    SmartMotionDetect[{smartMotionConfig.channelIndex}].Enable
+                  </p>
+                </div>
+                <Switch
+                  checked={Boolean(smartMotionDraft.enabled)}
+                  onChange={handleToggleSmartMotionEnable}
+                />
+              </div>
+
+              <div className="px-4 py-4 space-y-4 bg-white border rounded-xl border-navy/10">
+                <div className="flex items-center gap-3">
+                  <p className="min-w-[120px] text-sm font-semibold text-navy/70">
+                    Effective Target
+                  </p>
+                  <label className="inline-flex items-center gap-2 text-sm font-semibold text-navy/80">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(smartMotionDraft.objectTypes.human)}
+                      onChange={(event) =>
+                        setSmartMotionDraft((prev) => ({
+                          ...prev,
+                          objectTypes: {
+                            ...prev.objectTypes,
+                            human: event.target.checked,
+                          },
+                        }))
+                      }
+                    />
+                    Human
+                  </label>
+                  <label className="inline-flex items-center gap-2 text-sm font-semibold text-navy/80">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(smartMotionDraft.objectTypes.vehicle)}
+                      onChange={(event) =>
+                        setSmartMotionDraft((prev) => ({
+                          ...prev,
+                          objectTypes: {
+                            ...prev.objectTypes,
+                            vehicle: event.target.checked,
+                          },
+                        }))
+                      }
+                    />
+                    Vehicle
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <p className="min-w-[120px] text-sm font-semibold text-navy/70">
+                    Sensitivity
+                  </p>
+                  <select
+                    value={smartMotionDraft.sensitivity || "Middle"}
+                    onChange={(event) =>
+                      setSmartMotionDraft((prev) => ({
+                        ...prev,
+                        sensitivity: event.target.value,
+                      }))
+                    }
+                    className="min-w-[200px] rounded-lg border border-navy/20 bg-white px-3 py-2 text-sm font-semibold text-navy"
+                  >
+                    <option value="Low">Low</option>
+                    <option value="Middle">Medium</option>
+                    <option value="High">High</option>
+                  </select>
+                </div>
+
+                
+              </div>
+
+              {smartMotionLoading && (
+                <p className="text-sm font-semibold text-navy/55">
+                  Sinkronisasi Smart Motion...
                 </p>
               )}
-              {activeMode === "control" && (
-                <p className="px-4 py-3 text-sm font-semibold border rounded-xl border-navy/10 bg-slate-50 text-navy/60">
-                  Control API untuk menu ini belum diimplementasikan.
+              {smartMotionError && (
+                <p className="text-sm font-semibold text-danger">
+                  {smartMotionError}
+                </p>
+              )}
+
+              
+            </div>
+          ) : activeConfig?.key === "motionDetection" ? (
+            <div className="pb-16 space-y-4">
+              <div className="flex items-center justify-between px-4 py-3 border rounded-xl border-navy/10 bg-slate-50">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">
+                    Enable
+                  </p>
+                  
+                </div>
+                <Switch
+                  checked={Boolean(motionDetectionDraft.enabled)}
+                  onChange={(nextValue) =>
+                    setMotionDetectionDraft((prev) => ({ ...prev, enabled: nextValue }))
+                  }
+                />
+              </div>
+
+              {motionDetectionLoading && (
+                <p className="text-sm font-semibold text-navy/55">
+                  Sinkronisasi Motion Detection...
+                </p>
+              )}
+              {motionDetectionError && (
+                <p className="text-sm font-semibold text-danger">
+                  {motionDetectionError}
                 </p>
               )}
             </div>
+          ) : activeConfig?.key === "videoMetadata" ? (
+            <div className="pb-16 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="inline-flex overflow-hidden rounded-lg border border-navy/20 text-sm font-semibold">
+                  <button type="button" className="bg-sky-50 px-4 py-2 text-sky-700">Rule Config</button>
+                  <button type="button" className="bg-white px-4 py-2 text-navy/70">Global Config</button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between px-4 py-3 border rounded-xl border-navy/10 bg-slate-50">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-navy/45">
+                    Enable
+                  </p>
+                </div>
+                <Switch
+                  checked={Boolean(videoMetadataDraft.enabled)}
+                  onChange={(nextValue) =>
+                    setVideoMetadataDraft((prev) => ({ ...prev, enabled: nextValue }))
+                  }
+                />
+              </div>
+
+              <div className="pt-1">
+                <button
+                  type="button"
+                  disabled
+                  className="rounded-md bg-sky-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-70"
+                  title="Belum diimplementasikan untuk model ini"
+                >
+                  Add Rule
+                </button>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border border-navy/10 bg-white">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-navy/80">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-black">Name</th>
+                      <th className="px-4 py-3 text-left font-black">On</th>
+                      <th className="px-4 py-3 text-left font-black">Alarm Type</th>
+                      <th className="px-4 py-3 text-left font-black">Operation</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {videoMetadataConfig.rules.length === 0 && (
+                      <tr className="border-t border-navy/10">
+                        <td colSpan={4} className="px-4 py-8 text-center font-semibold text-navy/55">
+                          Unknown: rule metadata untuk channel ini tidak tersedia dari device.
+                        </td>
+                      </tr>
+                    )}
+                    {[...(videoMetadataConfig.rules || [])]
+                      .sort((a, b) => Number(a?.index) - Number(b?.index))
+                      .map((rule, idx) => {
+                      const draft = videoMetadataRuleDrafts.find((entry) => Number(entry.index) === Number(rule.index));
+                      const rowEnabled = Boolean(draft?.enabled ?? rule.enabled);
+                      const displayName = formatVideoMetadataRuleName(rule);
+                      return (
+                        <tr key={`${rule.name}-${idx}`} className="border-t border-navy/10">
+                          <td className="px-4 py-3 font-semibold text-navy/80">{displayName}</td>
+                          <td className="px-4 py-3 text-navy/80">
+                            <div className="inline-flex min-w-[140px] items-center gap-3">
+                              <span className="w-6 text-left">On</span>
+                              <Switch
+                                checked={rowEnabled}
+                                onChange={(nextValue) => {
+                                  setVideoMetadataRuleDrafts((prev) =>
+                                    prev.map((entry) =>
+                                      Number(entry.index) === Number(rule.index)
+                                        ? { ...entry, enabled: nextValue }
+                                      : entry,
+                                    ),
+                                  );
+                                }}
+                              />
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-navy/80">{rule.alarmType || "All"}</td>
+                          <td className="px-4 py-3 text-navy/50">
+                            <button
+                              type="button"
+                              className="inline-flex items-center rounded p-1 text-navy/55 hover:bg-slate-100"
+                              title="Delete rule"
+                              disabled
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex items-center gap-3 px-1">
+                <p className="text-sm font-semibold text-navy/70">
+                  People Flow Statistics
+                </p>
+                <Switch
+                  checked={Boolean(videoMetadataDraft.peopleFlowStatistics)}
+                  onChange={(nextValue) =>
+                    setVideoMetadataDraft((prev) => ({
+                      ...prev,
+                      peopleFlowStatistics: nextValue,
+                    }))
+                  }
+                />
+              </div>
+
+              {videoMetadataLoading && (
+                <p className="text-sm font-semibold text-navy/55">
+                  Sinkronisasi Video Metadata...
+                </p>
+              )}
+              {videoMetadataError && (
+                <p className="text-sm font-semibold text-danger">
+                  {videoMetadataError}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="px-4 py-3 text-sm font-semibold border rounded-xl border-navy/10 bg-slate-50 text-navy/60">
+                API menu ini belum diimplementasikan.
+              </p>
+            </div>
           )}
+
+          <div className={`absolute bottom-5 right-5 flex justify-end gap-2 ${activeConfig?.key === "smartMotion" ? "" : "hidden"}`}>
+                <button
+                  type="button"
+                  onClick={handleCancelSmartMotionChanges}
+                  disabled={smartMotionLoading || !isSmartMotionDirty}
+                  className="px-4 py-2 text-sm font-bold border rounded-lg border-navy/20 text-navy/70 disabled:opacity-60"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSmartMotionConfig}
+                  disabled={smartMotionLoading || !isSmartMotionDirty}
+                  className="px-4 py-2 text-sm font-bold text-white rounded-lg bg-sky-600 disabled:opacity-60"
+                >
+                  Save
+                </button>
+              </div>
+
+          <div className={`absolute bottom-5 right-5 flex justify-end gap-2 ${activeConfig?.key === "motionDetection" ? "" : "hidden"}`}>
+                <button
+                  type="button"
+                  onClick={handleCancelMotionDetectionChanges}
+                  disabled={motionDetectionLoading || !isMotionDetectionDirty}
+                  className="px-4 py-2 text-sm font-bold border rounded-lg border-navy/20 text-navy/70 disabled:opacity-60"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveMotionDetectionConfig}
+                  disabled={motionDetectionLoading || !isMotionDetectionDirty}
+                  className="px-4 py-2 text-sm font-bold text-white rounded-lg bg-sky-600 disabled:opacity-60"
+                >
+                  Save
+                </button>
+              </div>
+
+          <div className={`absolute bottom-5 right-5 flex justify-end gap-2 ${activeConfig?.key === "videoMetadata" ? "" : "hidden"}`}>
+                <button
+                  type="button"
+                  onClick={handleCancelVideoMetadataChanges}
+                  disabled={videoMetadataLoading || !isVideoMetadataDirty}
+                  className="px-4 py-2 text-sm font-bold border rounded-lg border-navy/20 text-navy/70 disabled:opacity-60"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveVideoMetadataConfig}
+                  disabled={videoMetadataLoading || !isVideoMetadataDirty}
+                  className="px-4 py-2 text-sm font-bold text-white rounded-lg bg-sky-600 disabled:opacity-60"
+                >
+                  Save
+                </button>
+              </div>
         </section>
+        
       </div>
     </div>
   );

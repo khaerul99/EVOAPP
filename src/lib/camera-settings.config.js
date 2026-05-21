@@ -28,7 +28,7 @@ export const MENU_CONFIG = [
         key: 'videoMetadata',
         title: 'Video Metadata',
         subtitle: 'VideoMetadata',
-        endpoint: EVENT_ENDPOINT,
+        endpoint: CONFIG_ENDPOINT,
         eventCodes: ['VideoMetadata'],
         dataRows: [
             { key: 'videoMetadata', label: 'VideoMetadata', eventCode: 'VideoMetadata' },
@@ -49,7 +49,7 @@ export const MENU_CONFIG = [
         key: 'smartMotion',
         title: 'Smart Motion (SMD)',
         subtitle: 'SmartMotionHuman, SmartMotionVehicle',
-        endpoint: EVENT_ENDPOINT,
+        endpoint: CONFIG_ENDPOINT,
         eventCodes: ['SmartMotionHuman', 'SmartMotionVehicle'],
         dataRows: [
             { key: 'smartMotionHuman', label: 'SmartMotionHuman', eventCode: 'SmartMotionHuman' },
@@ -60,7 +60,7 @@ export const MENU_CONFIG = [
         key: 'motionDetection',
         title: 'Motion Detection',
         subtitle: 'VideoMotion',
-        endpoint: EVENT_ENDPOINT,
+        endpoint: CONFIG_ENDPOINT,
         eventCodes: ['VideoMotion'],
         dataRows: [
             { key: 'videoMotion', label: 'VideoMotion', eventCode: 'VideoMotion' },

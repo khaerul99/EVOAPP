@@ -61,14 +61,14 @@ function getRequestBody(req) {
 }
 
 function buildTargetUrl(query = {}) {
-    const rawPath = String(query.__path || '').trim().replace(/^\/+/, '')
+    const rawPath = String(query.__path || query._path || '').trim().replace(/^\/+/, '')
     if (!rawPath) {
         throw new Error('Missing __path query')
     }
 
     const targetUrl = new URL(rawPath, getCameraBaseOrigin())
     Object.entries(query).forEach(([key, value]) => {
-        if (key === '__path' || value === undefined) {
+        if (key === '__path' || key === '_path' || value === undefined) {
             return
         }
         if (Array.isArray(value)) {

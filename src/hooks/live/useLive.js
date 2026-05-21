@@ -1,6 +1,8 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import { cameraService } from '../../services/camera/camera.service';
+import { cameraSettingsService } from '../../services/camera/camera-settings.service';
+import { liveDetectionService } from '../../services/camera/live-detection.service';
 import { liveService } from '../../services/live/live.service';
 import { authStore } from '../../stores/authSlice';
 import { filterChannelsByAction } from '../../lib/role-helper';
@@ -57,6 +59,17 @@ export function useLive() {
     const [authCooldownEndsAt, setAuthCooldownEndsAt] = useState(0);
     const [authCooldownRemainingSec, setAuthCooldownRemainingSec] = useState(0);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [detectionFeed, setDetectionFeed] = useState([]);
+    const [detectionError, setDetectionError] = useState('');
+    const detectionRequestInFlightRef = useRef(false);
+    const detectionHistoryRef = useRef([]);
+    const detectionThumbRef = useRef(new Map());
+    const detectionAuthCooldownEndsAtRef = useRef(0);
+    const detectionFailureCountRef = useRef(0);
+    const detectionLastFetchAtRef = useRef(0);
+    const detectionConsecutive401Ref = useRef(0);
+    const detectionCropSemaphoreRef = useRef(0);
+    const MAX_CONCURRENT_CROPS = 3;
 
     useEffect(() => {
         if (authCooldownEndsAt <= 0) {
@@ -462,6 +475,195 @@ export function useLive() {
         }
     }, []);
 
+    useEffect(() => {
+        if (!form.channel && channels.length === 0) {
+            setDetectionFeed([]);
+            return undefined;
+        }
+
+        detectionHistoryRef.current = [];
+        detectionThumbRef.current.forEach((url) => {
+            try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+        });
+        detectionThumbRef.current.clear();
+
+        let cancelled = false;
+        let timer = null;
+        let visibilityDebounce = null;
+
+        const scheduleNext = (delayMs) => {
+            if (cancelled) return;
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(fetchDetections, delayMs);
+        };
+
+        const fetchDetections = async () => {
+            const now = Date.now();
+            if (now - detectionLastFetchAtRef.current < 10000) {
+                scheduleNext(10000);
+                return;
+            }
+            if (document.hidden) {
+                scheduleNext(15000);
+                return;
+            }
+            if (detectionRequestInFlightRef.current) return;
+            if (detectionAuthCooldownEndsAtRef.current > Date.now()) {
+                const waitSec = Math.ceil((detectionAuthCooldownEndsAtRef.current - Date.now()) / 1000);
+                setDetectionError(`Detection pause ${waitSec} detik (auth kamera 401).`);
+                scheduleNext(6000);
+                return;
+            }
+            detectionRequestInFlightRef.current = true;
+            detectionLastFetchAtRef.current = now;
+            try {
+                const channelId = Number(form.channel);
+                if (!Number.isFinite(channelId) || channelId <= 0) {
+                    setDetectionFeed([]);
+                    setDetectionError('');
+                    scheduleNext(7000);
+                    return;
+                }
+
+                const result = await cameraSettingsService.getRealtimeEventStatus({
+                    channelId,
+                    eventCodes: liveDetectionService.DETECTION_EVENT_CODES,
+                    strictChannel: false,
+                });
+                if (cancelled) return;
+
+                const mapped = liveDetectionService.mapEventEntriesToCards(
+                    result?.entries || [],
+                    channelId,
+                    result?.fetchedAt,
+                    result?.raw || '',
+                );
+
+                if (mapped.length === 0) {
+                    setDetectionFeed(detectionHistoryRef.current.slice(0, 100));
+                    setDetectionError('');
+                    detectionFailureCountRef.current = 0;
+                    scheduleNext(7000);
+                    return;
+                }
+
+                const knownIds = new Set(detectionHistoryRef.current.map((item) => item.id));
+                const hasNewEvents = mapped.some((item) => !knownIds.has(item.id));
+                let channelSnapshotBlob = null;
+                if (hasNewEvents) {
+                    channelSnapshotBlob = await liveDetectionService.fetchChannelSnapshot(channelId);
+                }
+                const withThumbs = await (async () => {
+                    const results = [];
+                    for (let i = 0; i < mapped.length; i += 1) {
+                        const eventItem = mapped[i];
+                        const cacheKey = eventItem.id;
+                        if (detectionThumbRef.current.has(cacheKey)) {
+                            results.push({ ...eventItem, thumbUrl: detectionThumbRef.current.get(cacheKey) });
+                            continue;
+                        }
+                        if (i >= 5) {
+                            results.push(eventItem);
+                            continue;
+                        }
+                        if (!channelSnapshotBlob || !eventItem.boundingBox) {
+                            if (eventItem.humanImageBlob) {
+                                try {
+                                    const blobUrl = URL.createObjectURL(eventItem.humanImageBlob);
+                                    detectionThumbRef.current.set(cacheKey, blobUrl);
+                                    results.push({ ...eventItem, thumbUrl: blobUrl });
+                                } catch {
+                                    results.push(eventItem);
+                                }
+                            } else {
+                                results.push(eventItem);
+                            }
+                            continue;
+                        }
+                        while (detectionCropSemaphoreRef.current >= MAX_CONCURRENT_CROPS) {
+                            await new Promise((res) => setTimeout(res, 10));
+                        }
+                        detectionCropSemaphoreRef.current += 1;
+                        try {
+                            const cropped = await liveDetectionService.cropSnapshotByBoundingBox(
+                                channelSnapshotBlob,
+                                eventItem.boundingBox,
+                                {
+                                    sceneWidth: eventItem.sceneWidth,
+                                    sceneHeight: eventItem.sceneHeight,
+                                    boundingScale: eventItem.boundingScale,
+                                },
+                            );
+                            const blob = cropped || channelSnapshotBlob;
+                            const blobUrl = URL.createObjectURL(blob);
+                            detectionThumbRef.current.set(cacheKey, blobUrl);
+                            results.push({ ...eventItem, thumbUrl: blobUrl });
+                        } catch {
+                            if (eventItem.humanImageBlob) {
+                                try {
+                                    const blobUrl = URL.createObjectURL(eventItem.humanImageBlob);
+                                    detectionThumbRef.current.set(cacheKey, blobUrl);
+                                    results.push({ ...eventItem, thumbUrl: blobUrl });
+                                } catch {
+                                    results.push(eventItem);
+                                }
+                            } else {
+                                results.push(eventItem);
+                            }
+                        } finally {
+                            detectionCropSemaphoreRef.current = Math.max(0, detectionCropSemaphoreRef.current - 1);
+                        }
+                    }
+                    return results;
+                })();
+
+                const seen = new Set(detectionHistoryRef.current.map((item) => item.id));
+                const appended = withThumbs.filter((item) => !seen.has(item.id));
+                detectionHistoryRef.current = [...appended, ...detectionHistoryRef.current].slice(0, 100);
+                setDetectionFeed(detectionHistoryRef.current.slice(0, 100));
+                setDetectionError('');
+                detectionFailureCountRef.current = 0;
+                detectionConsecutive401Ref.current = 0;
+                scheduleNext(hasNewEvents ? 10000 : 12000);
+            } catch (err) {
+                if (!cancelled) {
+                    const statusCode = Number(err?.response?.status || 0);
+                    const message = String(err?.message || '');
+                    const isAttachAbort = String(err?.code || '') === 'ERR_CANCELED' || /event-attach-(window-timeout|enough-data)/i.test(message);
+                    if (statusCode === 401) {
+                        detectionConsecutive401Ref.current += 1;
+                        const cooldownMs = detectionConsecutive401Ref.current >= 3 ? 30000 : 10000;
+                        detectionAuthCooldownEndsAtRef.current = Date.now() + cooldownMs;
+                        setDetectionError(`Auth kamera 401. Detection dijeda ${Math.ceil(cooldownMs / 1000)} detik supaya stabil.`);
+                        scheduleNext(6000);
+                    } else {
+                        setDetectionError(isAttachAbort ? '' : (message || 'Gagal mengambil realtime detection.'));
+                        detectionFailureCountRef.current += 1;
+                        const backoffMs = Math.min(15000, 5000 + (detectionFailureCountRef.current * 1500));
+                        scheduleNext(backoffMs);
+                    }
+                }
+            } finally {
+                detectionRequestInFlightRef.current = false;
+            }
+        };
+
+        fetchDetections();
+        const onVisibilityChange = () => {
+            if (visibilityDebounce) clearTimeout(visibilityDebounce);
+            visibilityDebounce = setTimeout(() => {
+                if (!document.hidden) fetchDetections();
+            }, 500);
+        };
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        return () => {
+            cancelled = true;
+            if (timer) clearTimeout(timer);
+            if (visibilityDebounce) clearTimeout(visibilityDebounce);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
+    }, [channels.length, form.channel]);
+
     return {
         videoRef,
         liveContainerRef,
@@ -487,5 +689,7 @@ export function useLive() {
         isFullscreen,
         handleToggleFullscreen,
         handleStartStream,
+        detectionFeed,
+        detectionError,
     };
 }
